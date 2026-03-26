@@ -1254,7 +1254,9 @@ function HeroSection({
   onWithdraw,
   onConvert,
   onCoinClick,
-  actor,
+  actor: _actor,
+  balance: balanceProp,
+  onBalanceRefresh: _onBalanceRefresh,
 }: {
   featuredCoins: typeof FALLBACK_FEATURED;
   loggedInUser?: string | null;
@@ -1263,22 +1265,12 @@ function HeroSection({
   onConvert?: () => void;
   onCoinClick?: (symbol: string) => void;
   actor?: ReturnType<typeof useActor>["actor"];
+  balance?: number;
+  onBalanceRefresh?: () => void;
 }) {
   const { coins: featuredCoins, priceDir } =
     useLiveFeaturedData(initialFeaturedCoins);
-  const [balance, setBalance] = useState<number | null>(null);
-  const fetchBalance = useCallback(async () => {
-    if (!actor || !loggedInUser) return;
-    try {
-      const bal = (await (actor as any).getMyBalance()) as number;
-      setBalance(bal);
-    } catch {
-      /* ignore */
-    }
-  }, [actor, loggedInUser]);
-  useEffect(() => {
-    fetchBalance();
-  }, [fetchBalance]);
+  const balance = balanceProp ?? 0;
   return (
     <section className="relative pt-20 pb-24 px-6">
       <div className="max-w-[1200px] mx-auto">
@@ -1869,6 +1861,7 @@ function DashboardView({
   onLogout,
   onUsernameChange,
   onCoinClick,
+  balance: externalBalance,
 }: {
   username: string;
   coins: typeof FALLBACK_MARKET;
@@ -1876,6 +1869,7 @@ function DashboardView({
   onLogout: () => void;
   onUsernameChange?: (name: string) => void;
   onCoinClick?: (symbol: string) => void;
+  balance?: number;
 }) {
   const { actor } = useActor();
   const [orders, setOrders] = useState<OrderConfirmation[]>([]);
@@ -1907,7 +1901,8 @@ function DashboardView({
     loadOrders();
   }, [loadOrders]);
 
-  const totalBalance = HOLDINGS.reduce((sum, h) => sum + h.amount * h.price, 0);
+  const totalBalance =
+    externalBalance ?? HOLDINGS.reduce((sum, h) => sum + h.amount * h.price, 0);
   const totalPnl = HOLDINGS.reduce(
     (sum, h) => sum + (h.amount * h.price * h.change24h) / 100,
     0,
@@ -2699,28 +2694,16 @@ function BottomNav({
 function AssetsTab({
   coins: _coins,
   onCoinClick,
-  actor,
-  loggedInUser,
+  actor: _actor2,
+  loggedInUser: _loggedInUser,
+  balance: realBalance = 0,
 }: {
   coins: typeof FALLBACK_MARKET;
   onCoinClick?: (symbol: string) => void;
   actor?: ReturnType<typeof useActor>["actor"];
   loggedInUser?: string | null;
+  balance?: number;
 }) {
-  const [realBalance, setRealBalance] = useState<number>(0);
-  useEffect(() => {
-    if (!actor || !loggedInUser) return;
-    const fetchBal = () => {
-      (actor as any)
-        .getMyBalance()
-        .then((b: number) => setRealBalance(b))
-        .catch(() => {});
-    };
-    fetchBal();
-    const interval = setInterval(fetchBal, 5000);
-    return () => clearInterval(interval);
-  }, [actor, loggedInUser]);
-
   return (
     <div className="min-h-screen px-4 lg:px-8 py-6" data-ocid="assets.page">
       <div className="max-w-4xl mx-auto">
@@ -3512,10 +3495,14 @@ function TradingTerminal({
   coins,
   actor,
   onOrderPlaced,
+  balance,
+  onBalanceRefresh,
 }: {
   coins: typeof FALLBACK_FEATURED;
   actor?: ReturnType<typeof useActor>["actor"];
   onOrderPlaced?: () => void;
+  balance?: number;
+  onBalanceRefresh?: () => void;
 }) {
   const [selectedSymbol, setSelectedSymbol] = useState(
     coins[0]?.symbol ?? "BTC",
@@ -3621,6 +3608,8 @@ function TradingTerminal({
         coinSymbol={coin.symbol}
         actor={actor}
         onTradeComplete={handleTradeComplete}
+        balance={balance}
+        onBalanceRefresh={onBalanceRefresh}
       />
       <RecentBinaryTradesLog trades={localBinaryTrades} />
     </div>
@@ -3645,14 +3634,18 @@ function BinaryOptionsPanel({
   coinSymbol,
   actor,
   onTradeComplete,
+  balance: balanceProp,
+  onBalanceRefresh,
 }: {
   coinSymbol: string;
   actor?: ReturnType<typeof useActor>["actor"];
   onTradeComplete?: (trade: BinaryTradeLocal) => void;
+  balance?: number;
+  onBalanceRefresh?: () => void;
 }) {
   const [selectedDuration, setSelectedDuration] = useState(DURATION_OPTIONS[1]);
   const [amount, setAmount] = useState("");
-  const [balance, setBalance] = useState<number | null>(null);
+  const balance = balanceProp ?? null;
   const [activeTrade, setActiveTrade] = useState<ActiveBinaryTrade | null>(
     null,
   );
@@ -3660,20 +3653,6 @@ function BinaryOptionsPanel({
   const [countdown, setCountdown] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const fetchBalance = useCallback(async () => {
-    if (!actor) return;
-    try {
-      const bal = (await (actor as any).getMyBalance()) as number;
-      setBalance(bal);
-    } catch {
-      /* ignore */
-    }
-  }, [actor]);
-
-  useEffect(() => {
-    fetchBalance();
-  }, [fetchBalance]);
 
   useEffect(() => {
     if (!activeTrade) return;
@@ -3688,7 +3667,7 @@ function BinaryOptionsPanel({
         setTradeResult(activeTrade.trade);
         onTradeComplete?.(activeTrade.trade);
         setActiveTrade(null);
-        fetchBalance();
+        onBalanceRefresh?.();
       }
     };
     tick();
@@ -3696,7 +3675,7 @@ function BinaryOptionsPanel({
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [activeTrade, fetchBalance, onTradeComplete]);
+  }, [activeTrade, onBalanceRefresh, onTradeComplete]);
 
   const placeTrade = async (direction: "long" | "short") => {
     const amt = Number.parseFloat(amount);
@@ -3734,7 +3713,7 @@ function BinaryOptionsPanel({
       setTradeResult(null);
       toast.success(`${direction === "long" ? "Long" : "Short"} trade placed!`);
       setAmount("");
-      await fetchBalance();
+      onBalanceRefresh?.();
     } catch (e: any) {
       toast.error(e?.message ?? "Trade failed");
     } finally {
@@ -4655,10 +4634,12 @@ function DepositModal({
   open,
   onOpenChange,
   actor,
+  onBalanceChange,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   actor?: ReturnType<typeof useActor>["actor"];
+  onBalanceChange?: () => void;
 }) {
   const [coin, setCoin] = useState("BTC");
   const [amount, setAmount] = useState("");
@@ -4687,6 +4668,7 @@ function DepositModal({
       toast.success(`$${amt.toFixed(2)} deposited to your account!`);
       setAmount("");
       onOpenChange(false);
+      onBalanceChange?.();
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Deposit failed");
     } finally {
@@ -4947,10 +4929,12 @@ function WithdrawModal({
   open,
   onOpenChange,
   actor,
+  onBalanceChange,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   actor?: ReturnType<typeof useActor>["actor"];
+  onBalanceChange?: () => void;
 }) {
   const [coin, setCoin] = useState("BTC");
   const [address, setAddress] = useState("");
@@ -4976,6 +4960,7 @@ function WithdrawModal({
       setAddress("");
       setAmount("");
       onOpenChange(false);
+      onBalanceChange?.();
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Withdrawal failed");
     } finally {
@@ -5469,6 +5454,23 @@ export default function App() {
   const { clear, identity } = useInternetIdentity();
   const { actor } = useActor();
 
+  const [balance, setBalance] = useState<number>(0);
+  const fetchBalance = useCallback(async () => {
+    if (!actor || !loggedInUser) return;
+    try {
+      const bal = (await (actor as any).getMyBalance()) as number;
+      setBalance(bal);
+    } catch {
+      /* ignore */
+    }
+  }, [actor, loggedInUser]);
+  useEffect(() => {
+    fetchBalance();
+    if (!loggedInUser) return;
+    const interval = setInterval(fetchBalance, 5000);
+    return () => clearInterval(interval);
+  }, [fetchBalance, loggedInUser]);
+
   // Restore session: if identity is present on load, try to fetch profile
   useEffect(() => {
     if (!identity || !actor || loggedInUser) return;
@@ -5498,7 +5500,14 @@ export default function App() {
   function renderContent() {
     switch (activeTab) {
       case "trade":
-        return <TradingTerminal coins={featuredCoins} actor={actor} />;
+        return (
+          <TradingTerminal
+            coins={featuredCoins}
+            actor={actor}
+            balance={balance}
+            onBalanceRefresh={fetchBalance}
+          />
+        );
       case "assets":
         return (
           <AssetsTab
@@ -5506,6 +5515,7 @@ export default function App() {
             onCoinClick={setSelectedDetailCoin}
             actor={actor}
             loggedInUser={loggedInUser}
+            balance={balance}
           />
         );
       case "mining":
@@ -5522,6 +5532,7 @@ export default function App() {
               localStorage.setItem("crypt0v_user", name);
             }}
             onCoinClick={setSelectedDetailCoin}
+            balance={balance}
           />
         ) : (
           <div
@@ -5584,6 +5595,8 @@ export default function App() {
               onConvert={() => setHomeModal("convert")}
               onCoinClick={setSelectedDetailCoin}
               actor={actor}
+              balance={balance}
+              onBalanceRefresh={fetchBalance}
             />
             <SpotTradingSection
               coins={featuredCoins}
@@ -5663,11 +5676,13 @@ export default function App() {
         open={homeModal === "deposit"}
         onOpenChange={(v) => setHomeModal(v ? "deposit" : "none")}
         actor={actor}
+        onBalanceChange={fetchBalance}
       />
       <WithdrawModal
         open={homeModal === "withdraw"}
         onOpenChange={(v) => setHomeModal(v ? "withdraw" : "none")}
         actor={actor}
+        onBalanceChange={fetchBalance}
       />
       <ConvertModal
         open={homeModal === "convert"}
