@@ -1,0 +1,3353 @@
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Toaster } from "@/components/ui/sonner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  ArrowDownRight,
+  ArrowUpRight,
+  BarChart,
+  BarChart2,
+  Cpu,
+  Headphones,
+  History,
+  Home,
+  Shield,
+  TrendingDown,
+  TrendingUp,
+  User,
+  Wallet,
+} from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { SiDiscord, SiLinkedin, SiTelegram, SiX } from "react-icons/si";
+import {
+  Area,
+  AreaChart,
+  Tooltip as RechartsTooltip,
+  ResponsiveContainer,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { toast } from "sonner";
+type OrderConfirmation = {
+  coinSymbol: string;
+  amount: number;
+  orderType: { buy: null } | { sell: null };
+  orderKind: { market: null } | { limit: number };
+  price: number;
+  totalCost: number;
+  timestamp: bigint;
+};
+import { useActor } from "./hooks/useActor";
+import { useInternetIdentity } from "./hooks/useInternetIdentity";
+import { useAllCoins, useFeaturedCoins } from "./hooks/useQueries";
+
+// ── Static fallback data ──────────────────────────────────────────────────────
+const FALLBACK_FEATURED = [
+  {
+    symbol: "BTC",
+    name: "Bitcoin",
+    price: 67420.0,
+    change24h: 2.34,
+    volume24h: 28_400_000_000,
+    marketCap: 1_320_000_000_000,
+  },
+  {
+    symbol: "ETH",
+    name: "Ethereum",
+    price: 3842.5,
+    change24h: 1.18,
+    volume24h: 14_200_000_000,
+    marketCap: 462_000_000_000,
+  },
+  {
+    symbol: "SOL",
+    name: "Solana",
+    price: 178.3,
+    change24h: -0.72,
+    volume24h: 3_100_000_000,
+    marketCap: 79_000_000_000,
+  },
+];
+
+const FALLBACK_MARKET = [
+  {
+    symbol: "BTC",
+    name: "Bitcoin",
+    price: 67420.0,
+    change24h: 2.34,
+    volume24h: 28_400_000_000,
+    marketCap: 1_320_000_000_000,
+  },
+  {
+    symbol: "ETH",
+    name: "Ethereum",
+    price: 3842.5,
+    change24h: 1.18,
+    volume24h: 14_200_000_000,
+    marketCap: 462_000_000_000,
+  },
+  {
+    symbol: "BNB",
+    name: "BNB",
+    price: 598.7,
+    change24h: 0.85,
+    volume24h: 2_300_000_000,
+    marketCap: 89_000_000_000,
+  },
+  {
+    symbol: "SOL",
+    name: "Solana",
+    price: 178.3,
+    change24h: -0.72,
+    volume24h: 3_100_000_000,
+    marketCap: 79_000_000_000,
+  },
+  {
+    symbol: "XRP",
+    name: "XRP",
+    price: 0.62,
+    change24h: 3.41,
+    volume24h: 1_800_000_000,
+    marketCap: 34_000_000_000,
+  },
+  {
+    symbol: "ADA",
+    name: "Cardano",
+    price: 0.48,
+    change24h: -1.23,
+    volume24h: 420_000_000,
+    marketCap: 17_000_000_000,
+  },
+  {
+    symbol: "AVAX",
+    name: "Avalanche",
+    price: 38.2,
+    change24h: 4.12,
+    volume24h: 780_000_000,
+    marketCap: 16_000_000_000,
+  },
+  {
+    symbol: "DOT",
+    name: "Polkadot",
+    price: 7.85,
+    change24h: -2.05,
+    volume24h: 320_000_000,
+    marketCap: 10_000_000_000,
+  },
+  {
+    symbol: "MATIC",
+    name: "Polygon",
+    price: 0.88,
+    change24h: 1.67,
+    volume24h: 560_000_000,
+    marketCap: 8_600_000_000,
+  },
+  {
+    symbol: "LINK",
+    name: "Chainlink",
+    price: 15.4,
+    change24h: 2.89,
+    volume24h: 440_000_000,
+    marketCap: 9_000_000_000,
+  },
+];
+
+// ── Mock dashboard data ───────────────────────────────────────────────────────
+const HOLDINGS = [
+  {
+    symbol: "BTC",
+    name: "Bitcoin",
+    amount: 0.85,
+    price: 67420.0,
+    change24h: 2.34,
+  },
+  {
+    symbol: "ETH",
+    name: "Ethereum",
+    amount: 12.4,
+    price: 3842.5,
+    change24h: 1.18,
+  },
+  {
+    symbol: "SOL",
+    name: "Solana",
+    amount: 450,
+    price: 178.3,
+    change24h: -0.72,
+  },
+  { symbol: "BNB", name: "BNB", amount: 28, price: 598.7, change24h: 0.85 },
+];
+
+// ── Live market data hook ─────────────────────────────────────────────────────
+type CoinData = (typeof FALLBACK_MARKET)[0];
+type FeaturedCoinData = (typeof FALLBACK_FEATURED)[0];
+
+function useLiveMarketData(initial: CoinData[]) {
+  const [coins, setCoins] = useState<CoinData[]>(initial);
+  const [priceDir, setPriceDir] = useState<
+    Record<string, "up" | "down" | null>
+  >({});
+  const prevCoinsRef = useRef<CoinData[]>(initial);
+  useEffect(() => {
+    const id = setInterval(() => {
+      setCoins((prev) => {
+        const next = prev.map((c) => ({
+          ...c,
+          price: c.price * (1 + (Math.random() - 0.5) * 0.006),
+        }));
+        const dirs: Record<string, "up" | "down" | null> = {};
+        next.forEach((c, i) => {
+          dirs[c.symbol] =
+            c.price > prevCoinsRef.current[i].price ? "up" : "down";
+        });
+        prevCoinsRef.current = next;
+        setPriceDir(dirs);
+        return next;
+      });
+    }, 5000);
+    return () => clearInterval(id);
+  }, []);
+  useEffect(() => {
+    if (Object.keys(priceDir).length === 0) return;
+    const t = setTimeout(() => setPriceDir({}), 800);
+    return () => clearTimeout(t);
+  }, [priceDir]);
+  return { coins, priceDir };
+}
+
+function useLiveFeaturedData(initial: FeaturedCoinData[]) {
+  const [coins, setCoins] = useState<FeaturedCoinData[]>(initial);
+  const [priceDir, setPriceDir] = useState<
+    Record<string, "up" | "down" | null>
+  >({});
+  const prevCoinsRef = useRef<FeaturedCoinData[]>(initial);
+  useEffect(() => {
+    const id = setInterval(() => {
+      setCoins((prev) => {
+        const next = prev.map((c) => ({
+          ...c,
+          price: c.price * (1 + (Math.random() - 0.5) * 0.006),
+        }));
+        const dirs: Record<string, "up" | "down" | null> = {};
+        next.forEach((c, i) => {
+          dirs[c.symbol] =
+            c.price > prevCoinsRef.current[i].price ? "up" : "down";
+        });
+        prevCoinsRef.current = next;
+        setPriceDir(dirs);
+        return next;
+      });
+    }, 5000);
+    return () => clearInterval(id);
+  }, []);
+  useEffect(() => {
+    if (Object.keys(priceDir).length === 0) return;
+    const t = setTimeout(() => setPriceDir({}), 800);
+    return () => clearTimeout(t);
+  }, [priceDir]);
+  return { coins, priceDir };
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function fmt(n: number, decimals = 2) {
+  return n.toLocaleString("en-US", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+}
+function fmtCompact(n: number) {
+  if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+  return `$${n.toFixed(2)}`;
+}
+function coinIcon(symbol: string) {
+  const icons: Record<string, string> = {
+    BTC: "₿",
+    ETH: "Ξ",
+    BNB: "B",
+    SOL: "◎",
+    XRP: "X",
+    ADA: "₳",
+    AVAX: "A",
+    DOT: "●",
+    MATIC: "M",
+    LINK: "L",
+  };
+  return icons[symbol] ?? symbol[0];
+}
+
+const PARTICLES = [
+  {
+    id: "p1",
+    color: "#2ED47A",
+    left: "8.0%",
+    top: "10%",
+    delay: "0.0s",
+    dur: "5s",
+  },
+  {
+    id: "p2",
+    color: "#4A90E2",
+    left: "15.5%",
+    top: "27%",
+    delay: "0.5s",
+    dur: "6s",
+  },
+  {
+    id: "p3",
+    color: "#9AA6B2",
+    left: "23.0%",
+    top: "44%",
+    delay: "1.0s",
+    dur: "7s",
+  },
+  {
+    id: "p4",
+    color: "#2ED47A",
+    left: "30.5%",
+    top: "61%",
+    delay: "1.5s",
+    dur: "5s",
+  },
+  {
+    id: "p5",
+    color: "#4A90E2",
+    left: "38.0%",
+    top: "78%",
+    delay: "2.0s",
+    dur: "6s",
+  },
+  {
+    id: "p6",
+    color: "#9AA6B2",
+    left: "45.5%",
+    top: "15%",
+    delay: "2.5s",
+    dur: "7s",
+  },
+  {
+    id: "p7",
+    color: "#2ED47A",
+    left: "53.0%",
+    top: "32%",
+    delay: "3.0s",
+    dur: "5s",
+  },
+  {
+    id: "p8",
+    color: "#4A90E2",
+    left: "60.5%",
+    top: "49%",
+    delay: "3.5s",
+    dur: "6s",
+  },
+  {
+    id: "p9",
+    color: "#9AA6B2",
+    left: "68.0%",
+    top: "66%",
+    delay: "4.0s",
+    dur: "7s",
+  },
+  {
+    id: "p10",
+    color: "#2ED47A",
+    left: "75.5%",
+    top: "83%",
+    delay: "4.5s",
+    dur: "5s",
+  },
+  {
+    id: "p11",
+    color: "#4A90E2",
+    left: "83.0%",
+    top: "20%",
+    delay: "5.0s",
+    dur: "6s",
+  },
+  {
+    id: "p12",
+    color: "#9AA6B2",
+    left: "90.5%",
+    top: "37%",
+    delay: "5.5s",
+    dur: "7s",
+  },
+];
+
+// ── Auth Modals ───────────────────────────────────────────────────────────────
+type AuthModal = "none" | "register" | "signin";
+
+const INPUT_STYLE = {
+  background: "#0B1626",
+  border: "1px solid #1E2A3B",
+  color: "#F2F5FF",
+} as const;
+
+function RegisterModal({
+  open,
+  onOpenChange,
+  onSwitchToSignIn,
+  onRegistered,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onSwitchToSignIn: () => void;
+  onRegistered: (name: string) => void;
+}) {
+  const [username, setUsername] = useState("");
+  const [error, setError] = useState("");
+  const [step, setStep] = useState<"form" | "connecting">("form");
+  const { login, identity, isLoggingIn } = useInternetIdentity();
+  const { actor } = useActor();
+
+  useEffect(() => {
+    if (!identity || step !== "connecting") return;
+    if (!actor) return;
+    void (async () => {
+      try {
+        await actor.saveCallerUserProfile({ name: username });
+        onRegistered(username);
+        onOpenChange(false);
+        toast.success(`Welcome to CRYPT0V, ${username}!`);
+      } catch {
+        setError("Failed to save profile. Please try again.");
+        setStep("form");
+      }
+    })();
+  }, [identity, actor, step, username, onRegistered, onOpenChange]);
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    if (!username.trim()) {
+      setError("Username is required.");
+      return;
+    }
+    if (username.trim().length < 3) {
+      setError("Username must be at least 3 characters.");
+      return;
+    }
+    setStep("connecting");
+    login();
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="sm:max-w-md"
+        style={{
+          background: "#0D1521",
+          border: "1px solid #1E2A3B",
+          color: "#F2F5FF",
+        }}
+        data-ocid="register.modal"
+      >
+        <DialogHeader>
+          <div className="flex items-center gap-2 mb-1">
+            <div
+              className="w-7 h-7 rounded-md flex items-center justify-center text-xs font-black"
+              style={{ background: "#2ED47A", color: "#060B14" }}
+            >
+              C
+            </div>
+            <span className="text-base font-bold" style={{ color: "#F2F5FF" }}>
+              CRYPT<span style={{ color: "#2ED47A" }}>0</span>V
+            </span>
+          </div>
+          <DialogTitle style={{ color: "#F2F5FF" }}>Create Account</DialogTitle>
+          <p className="text-sm" style={{ color: "#9AA6B2" }}>
+            Join millions of traders on CRYPT0V
+          </p>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4 mt-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="reg-username" style={{ color: "#9AA6B2" }}>
+              Username
+            </Label>
+            <Input
+              id="reg-username"
+              type="text"
+              placeholder="Choose a username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="text-sm"
+              style={INPUT_STYLE}
+              data-ocid="register.input"
+              disabled={step === "connecting" || isLoggingIn}
+            />
+          </div>
+          <div
+            className="text-xs px-3 py-2 rounded-lg"
+            style={{
+              background: "rgba(46,212,122,0.08)",
+              border: "1px solid rgba(46,212,122,0.2)",
+              color: "#9AA6B2",
+            }}
+          >
+            🔐 You'll authenticate via{" "}
+            <span style={{ color: "#2ED47A" }}>Internet Identity</span> — no
+            password needed. Secure and decentralized.
+          </div>
+          {error && (
+            <p
+              className="text-xs px-3 py-2 rounded-lg"
+              style={{
+                background: "rgba(227,93,106,0.1)",
+                border: "1px solid rgba(227,93,106,0.2)",
+                color: "#E35D6A",
+              }}
+              data-ocid="register.error_state"
+            >
+              {error}
+            </p>
+          )}
+          <button
+            type="submit"
+            className="w-full py-3 rounded-xl text-sm font-bold transition-all duration-200 hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
+            style={{ background: "#2ED47A", color: "#060B14" }}
+            data-ocid="register.submit_button"
+            disabled={step === "connecting" || isLoggingIn}
+          >
+            {step === "connecting" || isLoggingIn
+              ? "Connecting…"
+              : "Create Account"}
+          </button>
+        </form>
+        <p className="text-center text-sm mt-2" style={{ color: "#9AA6B2" }}>
+          Already have an account?{" "}
+          <button
+            type="button"
+            onClick={onSwitchToSignIn}
+            className="font-semibold transition-colors hover:opacity-80"
+            style={{ color: "#2ED47A" }}
+            data-ocid="register.signin.link"
+          >
+            Sign In
+          </button>
+        </p>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SignInModal({
+  open,
+  onOpenChange,
+  onSwitchToRegister,
+  onSignedIn,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onSwitchToRegister: () => void;
+  onSignedIn: (name: string) => void;
+}) {
+  const [error, setError] = useState("");
+  const [connecting, setConnecting] = useState(false);
+  const { login, identity, isLoggingIn } = useInternetIdentity();
+  const { actor } = useActor();
+
+  useEffect(() => {
+    if (!identity || !connecting) return;
+    if (!actor) return;
+    void (async () => {
+      try {
+        const profile = await actor.getCallerUserProfile();
+        if (profile) {
+          onSignedIn(profile.name);
+          onOpenChange(false);
+          toast.success(`Welcome back, ${profile.name}!`);
+        } else {
+          setError("No account found. Please register first.");
+          setConnecting(false);
+        }
+      } catch {
+        setError("Failed to fetch profile. Please try again.");
+        setConnecting(false);
+      }
+    })();
+  }, [identity, actor, connecting, onSignedIn, onOpenChange]);
+
+  function handleSignIn() {
+    setError("");
+    setConnecting(true);
+    login();
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="sm:max-w-md"
+        style={{
+          background: "#0D1521",
+          border: "1px solid #1E2A3B",
+          color: "#F2F5FF",
+        }}
+        data-ocid="signin.modal"
+      >
+        <DialogHeader>
+          <div className="flex items-center gap-2 mb-1">
+            <div
+              className="w-7 h-7 rounded-md flex items-center justify-center text-xs font-black"
+              style={{ background: "#2ED47A", color: "#060B14" }}
+            >
+              C
+            </div>
+            <span className="text-base font-bold" style={{ color: "#F2F5FF" }}>
+              CRYPT<span style={{ color: "#2ED47A" }}>0</span>V
+            </span>
+          </div>
+          <DialogTitle style={{ color: "#F2F5FF" }}>Welcome Back</DialogTitle>
+          <p className="text-sm" style={{ color: "#9AA6B2" }}>
+            Sign in to your CRYPT0V account
+          </p>
+        </DialogHeader>
+        <div className="space-y-4 mt-2">
+          <div
+            className="text-xs px-3 py-2 rounded-lg"
+            style={{
+              background: "rgba(46,212,122,0.08)",
+              border: "1px solid rgba(46,212,122,0.2)",
+              color: "#9AA6B2",
+            }}
+          >
+            🔐 Authenticate securely with{" "}
+            <span style={{ color: "#2ED47A" }}>Internet Identity</span> —
+            decentralized and passwordless.
+          </div>
+          {error && (
+            <p
+              className="text-xs px-3 py-2 rounded-lg"
+              style={{
+                background: "rgba(227,93,106,0.1)",
+                border: "1px solid rgba(227,93,106,0.2)",
+                color: "#E35D6A",
+              }}
+              data-ocid="signin.error_state"
+            >
+              {error}
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={handleSignIn}
+            className="w-full py-3 rounded-xl text-sm font-bold transition-all duration-200 hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
+            style={{ background: "#2ED47A", color: "#060B14" }}
+            data-ocid="signin.submit_button"
+            disabled={connecting || isLoggingIn}
+          >
+            {connecting || isLoggingIn
+              ? "Connecting…"
+              : "Sign In with Internet Identity"}
+          </button>
+        </div>
+        <p className="text-center text-sm mt-2" style={{ color: "#9AA6B2" }}>
+          Don't have an account?{" "}
+          <button
+            type="button"
+            onClick={onSwitchToRegister}
+            className="font-semibold transition-colors hover:opacity-80"
+            style={{ color: "#2ED47A" }}
+            data-ocid="signin.register.link"
+          >
+            Register
+          </button>
+        </p>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Background SVG overlay ────────────────────────────────────────────────────
+function SpaceBackground() {
+  return (
+    <div
+      className="fixed inset-0 overflow-hidden pointer-events-none"
+      aria-hidden="true"
+    >
+      <div
+        className="absolute inset-0"
+        style={{
+          background:
+            "linear-gradient(135deg, #060B14 0%, #0B1626 60%, #060B14 100%)",
+        }}
+      />
+      <svg
+        className="absolute inset-0 w-full h-full opacity-10"
+        xmlns="http://www.w3.org/2000/svg"
+        role="img"
+        aria-label="Background grid pattern"
+      >
+        <title>Background grid pattern</title>
+        <defs>
+          <pattern
+            id="grid"
+            width="80"
+            height="80"
+            patternUnits="userSpaceOnUse"
+          >
+            <path
+              d="M 80 0 L 0 0 0 80"
+              fill="none"
+              stroke="#2ED47A"
+              strokeWidth="0.5"
+            />
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#grid)" />
+      </svg>
+      <div
+        className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full animate-pulse-glow"
+        style={{
+          background:
+            "radial-gradient(circle, rgba(46,212,122,0.06) 0%, transparent 70%)",
+          filter: "blur(40px)",
+        }}
+      />
+      <div
+        className="absolute bottom-1/3 right-1/4 w-80 h-80 rounded-full animate-pulse-glow"
+        style={{
+          background:
+            "radial-gradient(circle, rgba(46,150,212,0.06) 0%, transparent 70%)",
+          filter: "blur(40px)",
+          animationDelay: "1.5s",
+        }}
+      />
+      {PARTICLES.map((p) => (
+        <div
+          key={p.id}
+          className="absolute w-1 h-1 rounded-full animate-float"
+          style={{
+            background: p.color,
+            left: p.left,
+            top: p.top,
+            animationDelay: p.delay,
+            animationDuration: p.dur,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ── Navigation ────────────────────────────────────────────────────────────────
+function Navbar({
+  onOpenRegister,
+  onOpenSignIn,
+  loggedInUser,
+  onLogout,
+}: {
+  onOpenRegister: () => void;
+  onOpenSignIn: () => void;
+  loggedInUser: string | null;
+  onLogout: () => void;
+}) {
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const handler = () => setScrolled(window.scrollY > 20);
+    window.addEventListener("scroll", handler, { passive: true });
+    return () => window.removeEventListener("scroll", handler);
+  }, []);
+
+  return (
+    <header
+      className="sticky top-0 z-50 transition-all duration-300"
+      style={{
+        background: scrolled ? "rgba(6,11,20,0.85)" : "transparent",
+        backdropFilter: scrolled ? "blur(16px)" : "none",
+        borderBottom: scrolled ? "1px solid #1E2A3B" : "1px solid transparent",
+      }}
+    >
+      <div className="max-w-[1200px] mx-auto px-6 flex items-center justify-between h-16">
+        <div className="flex items-center gap-2">
+          <div
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-black"
+            style={{ background: "#2ED47A", color: "#060B14" }}
+          >
+            C
+          </div>
+          <span
+            className="text-lg font-bold tracking-wide"
+            style={{ color: "#F2F5FF" }}
+          >
+            CRYPT<span style={{ color: "#2ED47A" }}>0</span>V
+          </span>
+        </div>
+        <nav className="hidden md:flex items-center gap-8">
+          {["Markets", "Trade", "Futures", "Earn", "Support"].map((link) => (
+            <NavLink key={link} label={link} />
+          ))}
+        </nav>
+        <div className="flex items-center gap-3">
+          {loggedInUser ? (
+            <>
+              <span
+                className="hidden sm:block text-sm font-medium px-3 py-1.5 rounded-lg"
+                style={{
+                  background: "rgba(46,212,122,0.1)",
+                  color: "#2ED47A",
+                  border: "1px solid rgba(46,212,122,0.2)",
+                }}
+                data-ocid="nav.user.panel"
+              >
+                👤 {loggedInUser}
+              </span>
+              <button
+                type="button"
+                onClick={onLogout}
+                className="px-4 py-2 text-sm font-medium rounded-lg border transition-colors duration-200"
+                style={{
+                  borderColor: "#1E2A3B",
+                  color: "#9AA6B2",
+                  background: "transparent",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.borderColor =
+                    "#E35D6A";
+                  (e.currentTarget as HTMLButtonElement).style.color =
+                    "#E35D6A";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.borderColor =
+                    "#1E2A3B";
+                  (e.currentTarget as HTMLButtonElement).style.color =
+                    "#9AA6B2";
+                }}
+                data-ocid="nav.logout.button"
+              >
+                Log Out
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={onOpenSignIn}
+                className="hidden sm:block px-4 py-2 text-sm font-medium rounded-lg border transition-colors duration-200"
+                style={{
+                  borderColor: "#1E2A3B",
+                  color: "#F2F5FF",
+                  background: "transparent",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.borderColor =
+                    "#2ED47A";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.borderColor =
+                    "#1E2A3B";
+                }}
+                data-ocid="nav.login.button"
+              >
+                Log In
+              </button>
+              <button
+                type="button"
+                onClick={onOpenRegister}
+                className="px-4 py-2 text-sm font-semibold rounded-full transition-all duration-200"
+                style={{ background: "#2ED47A", color: "#060B14" }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.background =
+                    "#3DE088";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.background =
+                    "#2ED47A";
+                }}
+                data-ocid="nav.register.button"
+              >
+                Register
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function NavLink({ label }: { label: string }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <a
+      href="/"
+      className="text-sm font-medium transition-colors duration-200"
+      style={{ color: hovered ? "#F2F5FF" : "#9AA6B2" }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      data-ocid={`nav.${label.toLowerCase()}.link`}
+    >
+      {label}
+    </a>
+  );
+}
+
+// ── Mini price card ───────────────────────────────────────────────────────────
+interface PriceCardProps {
+  coin: (typeof FALLBACK_FEATURED)[0];
+  index: number;
+  priceDir?: "up" | "down" | null;
+}
+function MiniPriceCard({ coin, index, priceDir }: PriceCardProps) {
+  const isPositive = coin.change24h >= 0;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.2 + index * 0.1 }}
+      className="flex items-center gap-3 px-4 py-3 rounded-2xl"
+      style={{ background: "#111B2A", border: "1px solid #1E2A3B" }}
+      data-ocid={`hero.price_card.${index + 1}`}
+    >
+      <div
+        className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
+        style={{ background: "#1E2A3B", color: "#2ED47A" }}
+      >
+        {coinIcon(coin.symbol)}
+      </div>
+      <div className="min-w-0">
+        <div className="text-xs font-medium" style={{ color: "#9AA6B2" }}>
+          {coin.symbol}
+        </div>
+        <div
+          className="text-sm font-bold truncate transition-colors duration-300"
+          style={{
+            color:
+              priceDir === "up"
+                ? "#2ED47A"
+                : priceDir === "down"
+                  ? "#FF4D4F"
+                  : "#F2F5FF",
+          }}
+        >
+          ${coin.price >= 1000 ? fmt(coin.price, 0) : fmt(coin.price, 2)}
+        </div>
+      </div>
+      <div
+        className="ml-auto text-xs font-semibold flex-shrink-0"
+        style={{ color: isPositive ? "#2ED47A" : "#E35D6A" }}
+      >
+        {isPositive ? "+" : ""}
+        {fmt(coin.change24h, 2)}%
+      </div>
+    </motion.div>
+  );
+}
+
+// ── Trading widget ────────────────────────────────────────────────────────────
+function TradingWidget({
+  coins,
+  actor,
+  onOrderPlaced,
+}: {
+  coins: typeof FALLBACK_FEATURED;
+  actor?: ReturnType<typeof useActor>["actor"];
+  onOrderPlaced?: () => void;
+}) {
+  const [orderType, setOrderType] = useState<"buy" | "sell">("buy");
+  const [amount, setAmount] = useState("");
+  const [selectedCoin, setSelectedCoin] = useState(coins[0]?.symbol ?? "BTC");
+  const [isPending, setIsPending] = useState(false);
+
+  const coin = coins.find((c) => c.symbol === selectedCoin) ?? coins[0];
+  const usdCost = coin ? Number.parseFloat(amount || "0") * coin.price : 0;
+
+  async function handleSubmit() {
+    if (!amount || Number.parseFloat(amount) <= 0) {
+      toast.error("Please enter a valid amount");
+      return;
+    }
+    setIsPending(true);
+    try {
+      if (actor) {
+        const confirmation = await (actor as any).placeOrder({
+          coinSymbol: selectedCoin,
+          amount: Number.parseFloat(amount),
+          orderType: orderType === "buy" ? { buy: null } : { sell: null },
+          orderKind: { market: null },
+        });
+        toast.success(
+          `Order placed! ${orderType === "buy" ? "Bought" : "Sold"} ${amount} ${selectedCoin} @ $${confirmation.price.toFixed(2)}`,
+        );
+        onOrderPlaced?.();
+      } else {
+        await new Promise((r) => setTimeout(r, 800));
+        toast.success(
+          `Order placed! ${orderType === "buy" ? "Bought" : "Sold"} ${amount} ${selectedCoin}`,
+        );
+      }
+      setAmount("");
+    } catch {
+      toast.error("Failed to place order. Please try again.");
+    } finally {
+      setIsPending(false);
+    }
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: 30 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ delay: 0.3 }}
+      className="rounded-3xl p-6 w-full max-w-sm mx-auto"
+      style={{
+        background: "#111B2A",
+        border: "1px solid #1E2A3B",
+        boxShadow:
+          "0 4px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04)",
+      }}
+      data-ocid="trading.widget.card"
+    >
+      <Tabs defaultValue="market" className="mb-5">
+        <TabsList className="w-full" style={{ background: "#0B1626" }}>
+          <TabsTrigger
+            value="market"
+            className="flex-1 text-sm"
+            data-ocid="trading.market.tab"
+          >
+            Market
+          </TabsTrigger>
+          <TabsTrigger
+            value="limit"
+            className="flex-1 text-sm"
+            data-ocid="trading.limit.tab"
+          >
+            Limit
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+      <div
+        className="flex rounded-xl overflow-hidden mb-5"
+        style={{ background: "#0B1626" }}
+      >
+        {(["buy", "sell"] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setOrderType(t)}
+            className="flex-1 py-2.5 text-sm font-semibold capitalize transition-all duration-200"
+            style={{
+              background:
+                orderType === t
+                  ? t === "buy"
+                    ? "#2ED47A"
+                    : "#E35D6A"
+                  : "transparent",
+              color: orderType === t ? "#060B14" : "#9AA6B2",
+              borderRadius: t === "buy" ? "10px 0 0 10px" : "0 10px 10px 0",
+            }}
+            data-ocid={`trading.${t}.toggle`}
+          >
+            {t.toUpperCase()}
+          </button>
+        ))}
+      </div>
+      <div className="mb-4">
+        <label
+          htmlFor="amount-input"
+          className="block text-xs font-medium mb-2"
+          style={{ color: "#9AA6B2" }}
+        >
+          I want to {orderType}
+        </label>
+        <div className="flex gap-2">
+          <Input
+            type="number"
+            placeholder="0.00"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            className="flex-1 text-sm"
+            style={{
+              background: "#0B1626",
+              border: "1px solid #1E2A3B",
+              color: "#F2F5FF",
+            }}
+            id="amount-input"
+            data-ocid="trading.amount.input"
+          />
+          <Select value={selectedCoin} onValueChange={setSelectedCoin}>
+            <SelectTrigger
+              className="w-28 text-sm"
+              style={{
+                background: "#0B1626",
+                border: "1px solid #1E2A3B",
+                color: "#F2F5FF",
+              }}
+              data-ocid="trading.coin.select"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent
+              style={{ background: "#111B2A", border: "1px solid #1E2A3B" }}
+            >
+              {coins.map((c) => (
+                <SelectItem
+                  key={c.symbol}
+                  value={c.symbol}
+                  style={{ color: "#F2F5FF" }}
+                >
+                  {c.symbol}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div
+        className="mb-5 px-3 py-2 rounded-xl"
+        style={{ background: "#0B1626", border: "1px solid #1E2A3B" }}
+      >
+        <div className="flex justify-between items-center">
+          <span className="text-xs" style={{ color: "#9AA6B2" }}>
+            You will pay
+          </span>
+          <span className="text-sm font-semibold" style={{ color: "#F2F5FF" }}>
+            ${fmt(usdCost, 2)} USD
+          </span>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={handleSubmit}
+        disabled={isPending}
+        className="w-full py-3 rounded-xl text-sm font-bold transition-all duration-200"
+        style={{
+          background: orderType === "buy" ? "#2ED47A" : "#E35D6A",
+          color: "#060B14",
+          opacity: isPending ? 0.7 : 1,
+        }}
+        data-ocid="trading.submit.button"
+      >
+        {isPending
+          ? "Processing..."
+          : `${orderType === "buy" ? "Buy" : "Sell"} ${selectedCoin}`}
+      </button>
+    </motion.div>
+  );
+}
+
+// ── Hero section ──────────────────────────────────────────────────────────────
+function HeroSection({
+  featuredCoins: initialFeaturedCoins,
+}: { featuredCoins: typeof FALLBACK_FEATURED }) {
+  const { coins: featuredCoins, priceDir } =
+    useLiveFeaturedData(initialFeaturedCoins);
+  return (
+    <section className="relative pt-20 pb-24 px-6">
+      <div className="max-w-[1200px] mx-auto">
+        <div className="grid lg:grid-cols-2 gap-12 items-center">
+          <div>
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6 }}
+            >
+              <div
+                className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium mb-6"
+                style={{
+                  background: "rgba(46,212,122,0.1)",
+                  border: "1px solid rgba(46,212,122,0.2)",
+                  color: "#2ED47A",
+                }}
+              >
+                <span
+                  className="w-1.5 h-1.5 rounded-full animate-pulse"
+                  style={{ background: "#2ED47A" }}
+                />
+                Live Trading Available
+              </div>
+              <h1
+                className="text-5xl lg:text-6xl font-extrabold leading-tight mb-5"
+                style={{ color: "#F2F5FF", letterSpacing: "-0.02em" }}
+              >
+                The Future of
+                <br />
+                <span style={{ color: "#2ED47A" }}>Digital Asset</span>
+                <br />
+                Trading
+              </h1>
+              <p
+                className="text-lg mb-10 leading-relaxed"
+                style={{ color: "#9AA6B2" }}
+              >
+                Access 500+ cryptocurrencies with institutional-grade security,
+                real-time data, and lightning-fast execution on CRYPT0V.
+              </p>
+            </motion.div>
+            <div className="grid grid-cols-3 gap-3">
+              {featuredCoins.slice(0, 3).map((coin, i) => (
+                <MiniPriceCard
+                  key={coin.symbol}
+                  coin={coin}
+                  index={i}
+                  priceDir={priceDir[coin.symbol]}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="flex justify-center lg:justify-end">
+            <TradingWidget coins={featuredCoins} />
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ── Market table ──────────────────────────────────────────────────────────────
+function MarketRow({
+  coin,
+  index,
+  priceDir,
+}: {
+  coin: (typeof FALLBACK_MARKET)[0];
+  index: number;
+  priceDir?: "up" | "down" | null;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const isPos = coin.change24h >= 0;
+  return (
+    <tr
+      className="transition-colors duration-150 cursor-pointer"
+      style={{
+        borderBottom: index < 9 ? "1px solid #1E2A3B" : "none",
+        background: hovered ? "rgba(46,212,122,0.03)" : "transparent",
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      data-ocid={`market.row.${index + 1}`}
+    >
+      <td className="px-6 py-4 text-sm" style={{ color: "#9AA6B2" }}>
+        {index + 1}
+      </td>
+      <td className="px-6 py-4">
+        <div className="flex items-center gap-3">
+          <div
+            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+            style={{ background: "#1E2A3B", color: "#2ED47A" }}
+          >
+            {coinIcon(coin.symbol)}
+          </div>
+          <div>
+            <div className="text-sm font-semibold" style={{ color: "#F2F5FF" }}>
+              {coin.name}
+            </div>
+            <div className="text-xs" style={{ color: "#9AA6B2" }}>
+              {coin.symbol}
+            </div>
+          </div>
+        </div>
+      </td>
+      <td
+        className="px-6 py-4 text-sm font-semibold transition-colors duration-300"
+        style={{
+          color:
+            priceDir === "up"
+              ? "#2ED47A"
+              : priceDir === "down"
+                ? "#FF4D4F"
+                : "#F2F5FF",
+        }}
+      >
+        ${coin.price >= 1 ? fmt(coin.price, 2) : fmt(coin.price, 4)}
+      </td>
+      <td className="px-6 py-4">
+        <div
+          className="flex items-center gap-1 text-sm font-semibold"
+          style={{ color: isPos ? "#2ED47A" : "#E35D6A" }}
+        >
+          {isPos ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+          {isPos ? "+" : ""}
+          {fmt(coin.change24h, 2)}%
+        </div>
+      </td>
+      <td className="px-6 py-4 text-sm" style={{ color: "#9AA6B2" }}>
+        {fmtCompact(coin.volume24h)}
+      </td>
+      <td className="px-6 py-4 text-sm" style={{ color: "#9AA6B2" }}>
+        {fmtCompact(coin.marketCap)}
+      </td>
+    </tr>
+  );
+}
+
+function MarketSection({
+  coins: initialCoins,
+}: { coins: typeof FALLBACK_MARKET }) {
+  const { coins, priceDir } = useLiveMarketData(initialCoins);
+  return (
+    <section className="py-20 px-6" id="markets">
+      <div className="max-w-[1200px] mx-auto">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
+          className="text-center mb-12"
+        >
+          <div
+            className="inline-block text-xs font-semibold uppercase tracking-widest mb-3 px-3 py-1 rounded-full"
+            style={{
+              color: "#2ED47A",
+              background: "rgba(46,212,122,0.08)",
+              border: "1px solid rgba(46,212,122,0.15)",
+            }}
+          >
+            Market Overview
+          </div>
+          <h2
+            className="text-3xl lg:text-4xl font-bold"
+            style={{ color: "#F2F5FF" }}
+          >
+            Top Cryptocurrencies Today
+          </h2>
+        </motion.div>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5, delay: 0.1 }}
+          className="rounded-2xl overflow-hidden"
+          style={{ background: "#111B2A", border: "1px solid #1E2A3B" }}
+          data-ocid="market.table"
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr style={{ borderBottom: "1px solid #1E2A3B" }}>
+                  {[
+                    "#",
+                    "Asset",
+                    "Price",
+                    "Change (24h)",
+                    "Volume (24h)",
+                    "Market Cap",
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider"
+                      style={{ color: "#9AA6B2" }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {coins.slice(0, 10).map((coin, i) => (
+                  <MarketRow
+                    key={coin.symbol}
+                    coin={coin}
+                    index={i}
+                    priceDir={priceDir[coin.symbol]}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </motion.div>
+      </div>
+    </section>
+  );
+}
+
+// ── Feature highlights ────────────────────────────────────────────────────────
+const FEATURES = [
+  {
+    icon: BarChart2,
+    title: "Advanced Trading Tools",
+    desc: "Professional-grade charts, real-time order books, and advanced technical indicators for serious traders.",
+  },
+  {
+    icon: Shield,
+    title: "Secure & Compliant",
+    desc: "Bank-grade encryption, multi-sig cold storage, and full regulatory compliance keep your assets safe.",
+  },
+  {
+    icon: Headphones,
+    title: "24/7 Support",
+    desc: "Our dedicated support team is available around the clock to help with any questions or issues.",
+  },
+];
+
+function FeatureCard({
+  feature,
+  index,
+}: { feature: (typeof FEATURES)[0]; index: number }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 30 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true }}
+      transition={{ duration: 0.5, delay: index * 0.1 }}
+      className="p-7 rounded-2xl transition-all duration-300"
+      style={{
+        background: "linear-gradient(135deg, #111B2A 0%, #0F1A28 100%)",
+        border: hovered
+          ? "1px solid rgba(46,212,122,0.3)"
+          : "1px solid #1E2A3B",
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      data-ocid={`features.card.${index + 1}`}
+    >
+      <div
+        className="w-12 h-12 rounded-xl flex items-center justify-center mb-5"
+        style={{
+          background: "rgba(46,212,122,0.1)",
+          border: "1px solid rgba(46,212,122,0.2)",
+        }}
+      >
+        <feature.icon size={22} style={{ color: "#2ED47A" }} />
+      </div>
+      <h3 className="text-lg font-bold mb-3" style={{ color: "#F2F5FF" }}>
+        {feature.title}
+      </h3>
+      <p className="text-sm leading-relaxed" style={{ color: "#9AA6B2" }}>
+        {feature.desc}
+      </p>
+    </motion.div>
+  );
+}
+
+function FeaturesSection() {
+  return (
+    <section className="py-20 px-6">
+      <div className="max-w-[1200px] mx-auto">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
+          className="text-center mb-14"
+        >
+          <div
+            className="inline-block text-xs font-semibold uppercase tracking-widest mb-3 px-3 py-1 rounded-full"
+            style={{
+              color: "#2ED47A",
+              background: "rgba(46,212,122,0.08)",
+              border: "1px solid rgba(46,212,122,0.15)",
+            }}
+          >
+            Feature Highlights
+          </div>
+          <h2
+            className="text-3xl lg:text-4xl font-bold"
+            style={{ color: "#F2F5FF" }}
+          >
+            Trade Smarter with <span style={{ color: "#2ED47A" }}>CRYPT0V</span>
+          </h2>
+        </motion.div>
+        <div className="grid md:grid-cols-3 gap-6">
+          {FEATURES.map((f, i) => (
+            <FeatureCard key={f.title} feature={f} index={i} />
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ── Footer ────────────────────────────────────────────────────────────────────
+const FOOTER_LINKS = {
+  Company: ["About Us", "Careers", "Blog", "Press"],
+  Products: ["Spot Trading", "Futures", "Earn", "NFT Marketplace"],
+  Support: ["Help Center", "API Docs", "Status", "Contact"],
+  Legal: ["Terms of Service", "Privacy Policy", "Cookie Policy", "Compliance"],
+};
+
+function FooterLink({ label }: { label: string }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <a
+      href="/"
+      className="text-sm transition-colors duration-200"
+      style={{ color: hovered ? "#2ED47A" : "#9AA6B2" }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {label}
+    </a>
+  );
+}
+
+function SocialIcon({
+  Icon,
+  label,
+}: { Icon: React.ComponentType<{ size: number }>; label: string }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <a
+      href="/"
+      aria-label={label}
+      className="w-9 h-9 rounded-lg flex items-center justify-center transition-colors duration-200"
+      style={{
+        background: hovered ? "rgba(46,212,122,0.1)" : "#1E2A3B",
+        color: hovered ? "#2ED47A" : "#9AA6B2",
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <Icon size={16} />
+    </a>
+  );
+}
+
+function Footer() {
+  const year = new Date().getFullYear();
+  return (
+    <footer
+      className="pt-16 pb-8 px-6"
+      style={{ borderTop: "1px solid #1E2A3B" }}
+    >
+      <div className="max-w-[1200px] mx-auto">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-10 mb-12">
+          <div className="col-span-2">
+            <div className="flex items-center gap-2 mb-4">
+              <div
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-black"
+                style={{ background: "#2ED47A", color: "#060B14" }}
+              >
+                C
+              </div>
+              <span className="text-lg font-bold" style={{ color: "#F2F5FF" }}>
+                CRYPT<span style={{ color: "#2ED47A" }}>0</span>V
+              </span>
+            </div>
+            <p
+              className="text-sm leading-relaxed mb-6"
+              style={{ color: "#9AA6B2" }}
+            >
+              The next generation crypto exchange. Trade with confidence on the
+              most secure platform.
+            </p>
+            <div className="flex gap-4">
+              <SocialIcon Icon={SiX} label="Twitter" />
+              <SocialIcon Icon={SiTelegram} label="Telegram" />
+              <SocialIcon Icon={SiDiscord} label="Discord" />
+              <SocialIcon Icon={SiLinkedin} label="LinkedIn" />
+            </div>
+          </div>
+          {Object.entries(FOOTER_LINKS).map(([col, links]) => (
+            <div key={col}>
+              <h4
+                className="text-sm font-semibold mb-4"
+                style={{ color: "#F2F5FF" }}
+              >
+                {col}
+              </h4>
+              <ul className="space-y-3">
+                {links.map((link) => (
+                  <li key={link}>
+                    <FooterLink label={link} />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+        <div
+          className="flex flex-col md:flex-row items-center justify-between gap-4 pt-8"
+          style={{ borderTop: "1px solid #1E2A3B" }}
+        >
+          <p className="text-sm" style={{ color: "#9AA6B2" }}>
+            &copy; {year} CRYPT0V. All rights reserved.
+          </p>
+          <p className="text-sm" style={{ color: "#9AA6B2" }}>
+            Built with <span style={{ color: "#E35D6A" }}>❤️</span> using{" "}
+            <a
+              href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="transition-colors duration-200"
+              style={{ color: "#2ED47A" }}
+            >
+              caffeine.ai
+            </a>
+          </p>
+        </div>
+      </div>
+    </footer>
+  );
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+function DashboardMarketTable({
+  coins: initialCoins,
+}: { coins: typeof FALLBACK_MARKET }) {
+  const { coins, priceDir } = useLiveMarketData(initialCoins);
+  return (
+    <div
+      className="rounded-2xl overflow-hidden"
+      style={{ background: "#111B2A", border: "1px solid #1E2A3B" }}
+      data-ocid="dashboard.market.table"
+    >
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr style={{ borderBottom: "1px solid #1E2A3B" }}>
+              {[
+                "#",
+                "Asset",
+                "Price",
+                "24h Change",
+                "Volume",
+                "Market Cap",
+              ].map((h) => (
+                <th
+                  key={h}
+                  className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider"
+                  style={{ color: "#9AA6B2" }}
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {coins.slice(0, 10).map((coin, i) => (
+              <MarketRow
+                key={coin.symbol}
+                coin={coin}
+                index={i}
+                priceDir={priceDir[coin.symbol]}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function DashboardView({
+  username,
+  coins,
+  featuredCoins,
+  onLogout,
+}: {
+  username: string;
+  coins: typeof FALLBACK_MARKET;
+  featuredCoins: typeof FALLBACK_FEATURED;
+  onLogout: () => void;
+}) {
+  const { actor } = useActor();
+  const [orders, setOrders] = useState<OrderConfirmation[]>([]);
+
+  const loadOrders = useCallback(async () => {
+    if (!actor) return;
+    try {
+      const result = (await (
+        actor as any
+      ).getMyOrders()) as OrderConfirmation[];
+      setOrders(result);
+    } catch {
+      // silently ignore
+    }
+  }, [actor]);
+
+  // Load orders when actor becomes available
+  useEffect(() => {
+    loadOrders();
+  }, [loadOrders]);
+
+  const totalBalance = HOLDINGS.reduce((sum, h) => sum + h.amount * h.price, 0);
+  const totalPnl = HOLDINGS.reduce(
+    (sum, h) => sum + (h.amount * h.price * h.change24h) / 100,
+    0,
+  );
+  const isPnlPos = totalPnl >= 0;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        key="dashboard"
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="min-h-screen px-4 lg:px-8 py-6"
+        data-ocid="dashboard.page"
+      >
+        <div className="max-w-[1400px] mx-auto">
+          {/* Dashboard header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+            <div>
+              <h1
+                className="text-2xl font-extrabold"
+                style={{ color: "#F2F5FF" }}
+              >
+                Welcome back,{" "}
+                <span style={{ color: "#2ED47A" }}>{username}</span> 👋
+              </h1>
+              <p className="text-sm mt-1" style={{ color: "#9AA6B2" }}>
+                Your portfolio at a glance —{" "}
+                {new Date().toLocaleDateString("en-US", {
+                  weekday: "long",
+                  year: "numeric",
+                  month: "long",
+                  day: "numeric",
+                })}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onLogout}
+              className="sm:hidden px-4 py-2 text-sm font-medium rounded-lg border transition-colors duration-200"
+              style={{
+                borderColor: "#E35D6A",
+                color: "#E35D6A",
+                background: "transparent",
+              }}
+              data-ocid="dashboard.logout.button"
+            >
+              Log Out
+            </button>
+          </div>
+
+          {/* Stat cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            {[
+              {
+                label: "Total Balance",
+                value: `$${fmt(totalBalance, 2)}`,
+                sub: "USD",
+                icon: Wallet,
+                color: "#2ED47A",
+              },
+              {
+                label: "24h P&L",
+                value: `${isPnlPos ? "+" : ""}$${fmt(Math.abs(totalPnl), 2)}`,
+                sub: `${isPnlPos ? "+" : ""}${fmt((totalPnl / totalBalance) * 100, 2)}%`,
+                icon: isPnlPos ? ArrowUpRight : ArrowDownRight,
+                color: isPnlPos ? "#2ED47A" : "#E35D6A",
+              },
+              {
+                label: "Open Orders",
+                value: "1",
+                sub: "Pending",
+                icon: History,
+                color: "#4A90E2",
+              },
+              {
+                label: "Assets",
+                value: `${HOLDINGS.length}`,
+                sub: "Holdings",
+                icon: BarChart,
+                color: "#9370DB",
+              },
+            ].map((stat, i) => (
+              <motion.div
+                key={stat.label}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.07 }}
+                className="rounded-2xl p-5"
+                style={{ background: "#111B2A", border: "1px solid #1E2A3B" }}
+                data-ocid={`dashboard.stat.card.${i + 1}`}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <span
+                    className="text-xs font-medium uppercase tracking-wider"
+                    style={{ color: "#9AA6B2" }}
+                  >
+                    {stat.label}
+                  </span>
+                  <div
+                    className="w-8 h-8 rounded-lg flex items-center justify-center"
+                    style={{
+                      background: `${stat.color}18`,
+                      border: `1px solid ${stat.color}30`,
+                    }}
+                  >
+                    <stat.icon size={15} style={{ color: stat.color }} />
+                  </div>
+                </div>
+                <div
+                  className="text-xl font-bold"
+                  style={{
+                    color:
+                      stat.color === "#2ED47A" || stat.color === "#E35D6A"
+                        ? stat.color
+                        : "#F2F5FF",
+                  }}
+                >
+                  {stat.value}
+                </div>
+                <div className="text-xs mt-1" style={{ color: "#9AA6B2" }}>
+                  {stat.sub}
+                </div>
+              </motion.div>
+            ))}
+          </div>
+
+          {/* Main content: tabs + quick trade */}
+          <div className="flex flex-col xl:flex-row gap-6">
+            {/* Tabs panel */}
+            <div className="flex-1 min-w-0">
+              <Tabs defaultValue="portfolio">
+                <TabsList
+                  className="mb-6 h-11"
+                  style={{ background: "#111B2A", border: "1px solid #1E2A3B" }}
+                >
+                  <TabsTrigger
+                    value="portfolio"
+                    className="gap-2 text-sm"
+                    data-ocid="dashboard.portfolio.tab"
+                  >
+                    <Wallet size={14} />
+                    Portfolio
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="history"
+                    className="gap-2 text-sm"
+                    data-ocid="dashboard.history.tab"
+                  >
+                    <History size={14} />
+                    History
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="market"
+                    className="gap-2 text-sm"
+                    data-ocid="dashboard.market.tab"
+                  >
+                    <BarChart size={14} />
+                    Market
+                  </TabsTrigger>
+                </TabsList>
+
+                {/* Portfolio tab */}
+                <TabsContent value="portfolio">
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.3 }}
+                  >
+                    {/* Balance card */}
+                    <div
+                      className="rounded-2xl p-6 mb-6"
+                      style={{
+                        background:
+                          "linear-gradient(135deg, #111B2A 0%, #0F1A28 100%)",
+                        border: "1px solid #1E2A3B",
+                      }}
+                      data-ocid="dashboard.portfolio.card"
+                    >
+                      <p
+                        className="text-xs font-semibold uppercase tracking-widest mb-1"
+                        style={{ color: "#9AA6B2" }}
+                      >
+                        Total Portfolio Value
+                      </p>
+                      <div className="flex items-end gap-4 flex-wrap">
+                        <span
+                          className="text-4xl font-extrabold"
+                          style={{ color: "#F2F5FF" }}
+                        >
+                          ${fmt(totalBalance, 2)}
+                        </span>
+                        <span
+                          className="text-sm font-medium mb-1"
+                          style={{ color: "#9AA6B2" }}
+                        >
+                          USD
+                        </span>
+                        <span
+                          className="text-sm font-semibold mb-1 px-2 py-0.5 rounded-lg"
+                          style={{
+                            background: isPnlPos
+                              ? "rgba(46,212,122,0.12)"
+                              : "rgba(227,93,106,0.12)",
+                            color: isPnlPos ? "#2ED47A" : "#E35D6A",
+                          }}
+                        >
+                          {isPnlPos ? "▲" : "▼"} {isPnlPos ? "+" : ""}
+                          {fmt((totalPnl / totalBalance) * 100, 2)}% today
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Holdings table */}
+                    <div
+                      className="rounded-2xl overflow-hidden"
+                      style={{
+                        background: "#111B2A",
+                        border: "1px solid #1E2A3B",
+                      }}
+                      data-ocid="dashboard.holdings.table"
+                    >
+                      <div
+                        className="px-6 py-4"
+                        style={{ borderBottom: "1px solid #1E2A3B" }}
+                      >
+                        <h3
+                          className="text-sm font-semibold"
+                          style={{ color: "#F2F5FF" }}
+                        >
+                          Your Holdings
+                        </h3>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead>
+                            <tr style={{ borderBottom: "1px solid #1E2A3B" }}>
+                              {[
+                                "Asset",
+                                "Amount",
+                                "Current Price",
+                                "Value",
+                                "24h Change",
+                              ].map((h) => (
+                                <th
+                                  key={h}
+                                  className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider"
+                                  style={{ color: "#9AA6B2" }}
+                                >
+                                  {h}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {HOLDINGS.map((h, i) => {
+                              const value = h.amount * h.price;
+                              const isPos = h.change24h >= 0;
+                              return (
+                                <tr
+                                  key={h.symbol}
+                                  style={{
+                                    borderBottom:
+                                      i < HOLDINGS.length - 1
+                                        ? "1px solid #1E2A3B"
+                                        : "none",
+                                  }}
+                                  data-ocid={`dashboard.holding.row.${i + 1}`}
+                                >
+                                  <td className="px-6 py-4">
+                                    <div className="flex items-center gap-3">
+                                      <div
+                                        className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
+                                        style={{
+                                          background: "#1E2A3B",
+                                          color: "#2ED47A",
+                                        }}
+                                      >
+                                        {coinIcon(h.symbol)}
+                                      </div>
+                                      <div>
+                                        <div
+                                          className="text-sm font-semibold"
+                                          style={{ color: "#F2F5FF" }}
+                                        >
+                                          {h.name}
+                                        </div>
+                                        <div
+                                          className="text-xs"
+                                          style={{ color: "#9AA6B2" }}
+                                        >
+                                          {h.symbol}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td
+                                    className="px-6 py-4 text-sm font-medium"
+                                    style={{ color: "#F2F5FF" }}
+                                  >
+                                    {h.amount} {h.symbol}
+                                  </td>
+                                  <td
+                                    className="px-6 py-4 text-sm"
+                                    style={{ color: "#F2F5FF" }}
+                                  >
+                                    ${fmt(h.price, 2)}
+                                  </td>
+                                  <td
+                                    className="px-6 py-4 text-sm font-semibold"
+                                    style={{ color: "#F2F5FF" }}
+                                  >
+                                    ${fmt(value, 2)}
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    <div
+                                      className="flex items-center gap-1 text-sm font-semibold"
+                                      style={{
+                                        color: isPos ? "#2ED47A" : "#E35D6A",
+                                      }}
+                                    >
+                                      {isPos ? (
+                                        <ArrowUpRight size={14} />
+                                      ) : (
+                                        <ArrowDownRight size={14} />
+                                      )}
+                                      {isPos ? "+" : ""}
+                                      {fmt(h.change24h, 2)}%
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </motion.div>
+                </TabsContent>
+
+                {/* History tab */}
+                <TabsContent value="history">
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.3 }}
+                  >
+                    <div
+                      className="rounded-2xl overflow-hidden"
+                      style={{
+                        background: "#111B2A",
+                        border: "1px solid #1E2A3B",
+                      }}
+                      data-ocid="dashboard.history.table"
+                    >
+                      <div
+                        className="px-6 py-4"
+                        style={{ borderBottom: "1px solid #1E2A3B" }}
+                      >
+                        <h3
+                          className="text-sm font-semibold"
+                          style={{ color: "#F2F5FF" }}
+                        >
+                          Trade History
+                        </h3>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead>
+                            <tr style={{ borderBottom: "1px solid #1E2A3B" }}>
+                              {[
+                                "Date",
+                                "Pair",
+                                "Type",
+                                "Amount",
+                                "Price",
+                                "Total",
+                                "Status",
+                              ].map((h) => (
+                                <th
+                                  key={h}
+                                  className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider"
+                                  style={{ color: "#9AA6B2" }}
+                                >
+                                  {h}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {orders.length === 0 ? (
+                              <tr>
+                                <td
+                                  colSpan={7}
+                                  className="px-5 py-10 text-center text-sm"
+                                  style={{ color: "#9AA6B2" }}
+                                  data-ocid="dashboard.history.empty_state"
+                                >
+                                  No trades yet. Place your first order above.
+                                </td>
+                              </tr>
+                            ) : (
+                              orders.map((t, i) => {
+                                const isBuy = "buy" in t.orderType;
+                                const dateStr = new Date(
+                                  Number(t.timestamp / 1_000_000n),
+                                ).toLocaleString();
+                                return (
+                                  <tr
+                                    key={`${t.timestamp}-${t.coinSymbol}`}
+                                    style={{
+                                      borderBottom:
+                                        i < orders.length - 1
+                                          ? "1px solid #1E2A3B"
+                                          : "none",
+                                    }}
+                                    data-ocid={`dashboard.history.row.${i + 1}`}
+                                  >
+                                    <td
+                                      className="px-5 py-3.5 text-xs"
+                                      style={{ color: "#9AA6B2" }}
+                                    >
+                                      {dateStr}
+                                    </td>
+                                    <td
+                                      className="px-5 py-3.5 text-sm font-semibold"
+                                      style={{ color: "#F2F5FF" }}
+                                    >
+                                      {t.coinSymbol}/USD
+                                    </td>
+                                    <td className="px-5 py-3.5">
+                                      <Badge
+                                        className="text-xs font-semibold"
+                                        style={{
+                                          background: isBuy
+                                            ? "rgba(46,212,122,0.15)"
+                                            : "rgba(227,93,106,0.15)",
+                                          color: isBuy ? "#2ED47A" : "#E35D6A",
+                                          border: `1px solid ${isBuy ? "rgba(46,212,122,0.3)" : "rgba(227,93,106,0.3)"}`,
+                                        }}
+                                      >
+                                        {isBuy ? "BUY" : "SELL"}
+                                      </Badge>
+                                    </td>
+                                    <td
+                                      className="px-5 py-3.5 text-sm"
+                                      style={{ color: "#F2F5FF" }}
+                                    >
+                                      {t.amount} {t.coinSymbol}
+                                    </td>
+                                    <td
+                                      className="px-5 py-3.5 text-sm"
+                                      style={{ color: "#F2F5FF" }}
+                                    >
+                                      ${fmt(t.price, 2)}
+                                    </td>
+                                    <td
+                                      className="px-5 py-3.5 text-sm font-semibold"
+                                      style={{ color: "#F2F5FF" }}
+                                    >
+                                      ${fmt(t.totalCost, 2)}
+                                    </td>
+                                    <td className="px-5 py-3.5">
+                                      <Badge
+                                        className="text-xs"
+                                        style={{
+                                          background: "rgba(46,212,122,0.1)",
+                                          color: "#2ED47A",
+                                          border:
+                                            "1px solid rgba(46,212,122,0.25)",
+                                        }}
+                                      >
+                                        Completed
+                                      </Badge>
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </motion.div>
+                </TabsContent>
+
+                {/* Market tab */}
+                <TabsContent value="market">
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.3 }}
+                  >
+                    <DashboardMarketTable coins={coins} />
+                  </motion.div>
+                </TabsContent>
+              </Tabs>
+            </div>
+
+            {/* Quick Trade sidebar */}
+            <div className="xl:w-80 flex-shrink-0">
+              <div className="sticky top-24">
+                <p
+                  className="text-xs font-semibold uppercase tracking-widest mb-3"
+                  style={{ color: "#9AA6B2" }}
+                >
+                  Quick Trade
+                </p>
+                <TradingWidget
+                  coins={featuredCoins}
+                  actor={actor}
+                  onOrderPlaced={loadOrders}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+// ── Bottom Navigation ─────────────────────────────────────────────────────────
+type BottomTab = "home" | "trade" | "assets" | "mining" | "profiles";
+
+const BOTTOM_TABS: {
+  key: BottomTab;
+  label: string;
+  icon: React.ElementType;
+}[] = [
+  { key: "home", label: "Home", icon: Home },
+  { key: "trade", label: "Trade", icon: BarChart2 },
+  { key: "assets", label: "Assets", icon: Wallet },
+  { key: "mining", label: "Mining", icon: Cpu },
+  { key: "profiles", label: "Profiles", icon: User },
+];
+
+function BottomNav({
+  activeTab,
+  onTabChange,
+}: {
+  activeTab: BottomTab;
+  onTabChange: (tab: BottomTab) => void;
+}) {
+  return (
+    <nav
+      className="fixed bottom-0 left-0 right-0 flex items-stretch"
+      style={{
+        background: "#0D1521",
+        borderTop: "1px solid #1E2A3B",
+        zIndex: 100,
+        height: 64,
+      }}
+      data-ocid="bottom_nav.panel"
+    >
+      {BOTTOM_TABS.map(({ key, label, icon: Icon }) => {
+        const isActive = activeTab === key;
+        return (
+          <button
+            key={key}
+            type="button"
+            onClick={() => onTabChange(key)}
+            className="flex-1 flex flex-col items-center justify-center gap-1 transition-colors duration-200"
+            style={{
+              color: isActive ? "#2ED47A" : "#9AA6B2",
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+            }}
+            data-ocid={`bottom_nav.${key}.tab`}
+          >
+            <Icon
+              size={20}
+              style={{
+                color: isActive ? "#2ED47A" : "#9AA6B2",
+                transition: "color 0.2s",
+              }}
+            />
+            <span
+              className="text-xs font-medium"
+              style={{
+                color: isActive ? "#2ED47A" : "#9AA6B2",
+                transition: "color 0.2s",
+              }}
+            >
+              {label}
+            </span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+function AssetsTab(_: { coins: typeof FALLBACK_MARKET }) {
+  const totalBalance = HOLDINGS.reduce((sum, h) => sum + h.amount * h.price, 0);
+  const totalPnl = HOLDINGS.reduce(
+    (sum, h) => sum + (h.amount * h.price * h.change24h) / 100,
+    0,
+  );
+  const isPnlPos = totalPnl >= 0;
+
+  return (
+    <div className="min-h-screen px-4 lg:px-8 py-6" data-ocid="assets.page">
+      <div className="max-w-4xl mx-auto">
+        <h2
+          className="text-2xl font-extrabold mb-6"
+          style={{ color: "#F2F5FF" }}
+        >
+          My <span style={{ color: "#2ED47A" }}>Assets</span>
+        </h2>
+        {/* Stat cards */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          {[
+            {
+              label: "Total Balance",
+              value: `$${fmt(totalBalance, 2)}`,
+              sub: "USD",
+              icon: Wallet,
+              color: "#2ED47A",
+            },
+            {
+              label: "24h P&L",
+              value: `${isPnlPos ? "+" : ""}$${fmt(Math.abs(totalPnl), 2)}`,
+              sub: `${isPnlPos ? "+" : ""}${fmt((totalPnl / totalBalance) * 100, 2)}%`,
+              icon: isPnlPos ? ArrowUpRight : ArrowDownRight,
+              color: isPnlPos ? "#2ED47A" : "#E35D6A",
+            },
+            {
+              label: "Open Orders",
+              value: "1",
+              sub: "Pending",
+              icon: History,
+              color: "#4A90E2",
+            },
+            {
+              label: "Holdings",
+              value: `${HOLDINGS.length}`,
+              sub: "Assets",
+              icon: BarChart,
+              color: "#9370DB",
+            },
+          ].map((stat, i) => (
+            <div
+              key={stat.label}
+              className="rounded-2xl p-5"
+              style={{ background: "#111B2A", border: "1px solid #1E2A3B" }}
+              data-ocid={`assets.stat.card.${i + 1}`}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <span
+                  className="text-xs font-medium uppercase tracking-wider"
+                  style={{ color: "#9AA6B2" }}
+                >
+                  {stat.label}
+                </span>
+                <div
+                  className="w-8 h-8 rounded-lg flex items-center justify-center"
+                  style={{
+                    background: `${stat.color}18`,
+                    border: `1px solid ${stat.color}30`,
+                  }}
+                >
+                  <stat.icon size={15} style={{ color: stat.color }} />
+                </div>
+              </div>
+              <div
+                className="text-xl font-bold"
+                style={{
+                  color:
+                    stat.color === "#4A90E2" || stat.color === "#9370DB"
+                      ? "#F2F5FF"
+                      : stat.color,
+                }}
+              >
+                {stat.value}
+              </div>
+              <div className="text-xs mt-1" style={{ color: "#9AA6B2" }}>
+                {stat.sub}
+              </div>
+            </div>
+          ))}
+        </div>
+        {/* Holdings table */}
+        <div
+          className="rounded-2xl overflow-hidden"
+          style={{ background: "#111B2A", border: "1px solid #1E2A3B" }}
+        >
+          <div
+            className="px-5 py-4 border-b"
+            style={{ borderColor: "#1E2A3B" }}
+          >
+            <h3 className="font-semibold text-sm" style={{ color: "#F2F5FF" }}>
+              Holdings
+            </h3>
+          </div>
+          <div className="divide-y" style={{ borderColor: "#1E2A3B" }}>
+            {HOLDINGS.map((h, i) => (
+              <div
+                key={h.symbol}
+                className="flex items-center justify-between px-5 py-4"
+                data-ocid={`assets.holding.item.${i + 1}`}
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold"
+                    style={{
+                      background: "#0B1626",
+                      border: "1px solid #1E2A3B",
+                      color: "#2ED47A",
+                    }}
+                  >
+                    {coinIcon(h.symbol)}
+                  </div>
+                  <div>
+                    <div
+                      className="text-sm font-semibold"
+                      style={{ color: "#F2F5FF" }}
+                    >
+                      {h.symbol}
+                    </div>
+                    <div className="text-xs" style={{ color: "#9AA6B2" }}>
+                      {h.name}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div
+                    className="text-sm font-semibold"
+                    style={{ color: "#F2F5FF" }}
+                  >
+                    ${fmt(h.amount * h.price, 2)}
+                  </div>
+                  <div
+                    className="text-xs"
+                    style={{ color: h.change24h >= 0 ? "#2ED47A" : "#E35D6A" }}
+                  >
+                    {h.change24h >= 0 ? "+" : ""}
+                    {h.change24h}%
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const MINING_POOLS = [
+  { name: "Antpool", hashrateShare: "28.4%", fee: "0%", workers: 142 },
+  { name: "F2Pool", hashrateShare: "19.7%", fee: "2.5%", workers: 98 },
+  { name: "ViaBTC", hashrateShare: "14.2%", fee: "2%", workers: 74 },
+  { name: "Slush Pool", hashrateShare: "9.8%", fee: "2%", workers: 51 },
+];
+
+const REWARD_HISTORY = [
+  {
+    date: "Mar 24, 2026",
+    amount: "0.00042",
+    usd: "$28.31",
+    status: "Confirmed",
+  },
+  {
+    date: "Mar 23, 2026",
+    amount: "0.00039",
+    usd: "$26.29",
+    status: "Confirmed",
+  },
+  {
+    date: "Mar 22, 2026",
+    amount: "0.00045",
+    usd: "$30.34",
+    status: "Confirmed",
+  },
+  {
+    date: "Mar 21, 2026",
+    amount: "0.00041",
+    usd: "$27.64",
+    status: "Confirmed",
+  },
+  {
+    date: "Mar 20, 2026",
+    amount: "0.00038",
+    usd: "$25.62",
+    status: "Confirmed",
+  },
+  {
+    date: "Mar 19, 2026",
+    amount: "0.00044",
+    usd: "$29.66",
+    status: "Confirmed",
+  },
+  {
+    date: "Mar 18, 2026",
+    amount: "0.00047",
+    usd: "$31.69",
+    status: "Confirmed",
+  },
+  { date: "Mar 17, 2026", amount: "0.00035", usd: "$23.60", status: "Pending" },
+];
+
+function MiningTab() {
+  const [isMining, setIsMining] = useState(false);
+  const [hashrate, setHashrate] = useState(142.3);
+  const [uptime, setUptime] = useState("0h 0m");
+  const [_uptimeSeconds, setUptimeSeconds] = useState(0);
+  const [selectedPool, setSelectedPool] = useState("Antpool");
+
+  // Simulate hashrate fluctuation when mining
+  useEffect(() => {
+    if (!isMining) return;
+    const id = setInterval(() => {
+      setHashrate((prev) =>
+        Number.parseFloat((prev + (Math.random() - 0.5) * 2).toFixed(1)),
+      );
+      setUptimeSeconds((prev) => {
+        const s = prev + 3;
+        const h = Math.floor(s / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        setUptime(`${h}h ${m}m`);
+        return s;
+      });
+    }, 3000);
+    return () => clearInterval(id);
+  }, [isMining]);
+
+  const activePool =
+    MINING_POOLS.find((p) => p.name === selectedPool) ?? MINING_POOLS[0];
+
+  return (
+    <div
+      className="min-h-screen px-4 py-8 pb-24 overflow-y-auto"
+      data-ocid="mining.page"
+      style={{ background: "#0D1520" }}
+    >
+      <div className="max-w-[960px] mx-auto space-y-5">
+        {/* Header */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="flex items-center gap-3 mb-2"
+        >
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center"
+            style={{
+              background: "rgba(46,212,122,0.12)",
+              border: "1px solid rgba(46,212,122,0.25)",
+            }}
+          >
+            <Cpu size={20} style={{ color: "#2ED47A" }} />
+          </div>
+          <div>
+            <h1 className="text-xl font-extrabold" style={{ color: "#F2F5FF" }}>
+              Mining Dashboard
+            </h1>
+            <p className="text-xs" style={{ color: "#9AA6B2" }}>
+              Monitor your mining performance & rewards
+            </p>
+          </div>
+        </motion.div>
+
+        {/* Status + Hashrate row */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.05 }}
+          className="rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
+          style={{ background: "#111B2A", border: "1px solid #1E2A3B" }}
+        >
+          <div className="flex items-center gap-4">
+            <div
+              className="w-14 h-14 rounded-2xl flex items-center justify-center relative"
+              style={{
+                background: isMining
+                  ? "rgba(46,212,122,0.12)"
+                  : "rgba(255,77,79,0.1)",
+                border: isMining
+                  ? "1px solid rgba(46,212,122,0.3)"
+                  : "1px solid rgba(255,77,79,0.3)",
+              }}
+            >
+              <Cpu
+                size={26}
+                style={{ color: isMining ? "#2ED47A" : "#FF4D4F" }}
+              />
+              {isMining && (
+                <span
+                  className="absolute top-1 right-1 w-2 h-2 rounded-full animate-pulse"
+                  style={{ background: "#2ED47A" }}
+                />
+              )}
+            </div>
+            <div>
+              <div
+                className="text-xs font-semibold uppercase tracking-widest mb-1"
+                style={{ color: "#9AA6B2" }}
+              >
+                Status
+              </div>
+              <div
+                className="text-lg font-extrabold"
+                style={{ color: isMining ? "#2ED47A" : "#FF4D4F" }}
+              >
+                {isMining ? "Mining Active" : "Stopped"}
+              </div>
+              {isMining && (
+                <div className="text-xs mt-0.5" style={{ color: "#9AA6B2" }}>
+                  Uptime: {uptime}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-6">
+            <div className="text-center">
+              <div
+                className="text-xs font-semibold uppercase tracking-widest mb-1"
+                style={{ color: "#9AA6B2" }}
+              >
+                Hashrate
+              </div>
+              <div
+                className="text-2xl font-extrabold"
+                style={{ color: "#F2F5FF" }}
+              >
+                {isMining ? hashrate.toFixed(1) : "0.0"}
+                <span
+                  className="text-sm font-semibold ml-1"
+                  style={{ color: "#9AA6B2" }}
+                >
+                  MH/s
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsMining((v) => !v)}
+              data-ocid="mining.toggle"
+              className="px-6 py-3 rounded-xl text-sm font-bold transition-all duration-200"
+              style={{
+                background: isMining ? "rgba(255,77,79,0.12)" : "#2ED47A",
+                border: isMining ? "1px solid rgba(255,77,79,0.4)" : "none",
+                color: isMining ? "#FF4D4F" : "#0D1520",
+              }}
+            >
+              {isMining ? "Stop Mining" : "Start Mining"}
+            </button>
+          </div>
+        </motion.div>
+
+        {/* Earnings row */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.1 }}
+          className="grid grid-cols-3 gap-4"
+        >
+          {[
+            { label: "Today", amount: "0.00042 BTC", usd: "≈ $28.31" },
+            { label: "This Week", amount: "0.00294 BTC", usd: "≈ $198.17" },
+            { label: "This Month", amount: "0.01260 BTC", usd: "≈ $849.29" },
+          ].map((item, i) => (
+            <div
+              key={item.label}
+              className="rounded-2xl p-4"
+              style={{ background: "#111B2A", border: "1px solid #1E2A3B" }}
+              data-ocid={`mining.earnings.card.${i + 1}`}
+            >
+              <div
+                className="text-xs font-semibold uppercase tracking-widest mb-2"
+                style={{ color: "#9AA6B2" }}
+              >
+                {item.label}
+              </div>
+              <div
+                className="text-base font-extrabold"
+                style={{ color: "#2ED47A" }}
+              >
+                {item.amount}
+              </div>
+              <div className="text-xs mt-0.5" style={{ color: "#9AA6B2" }}>
+                {item.usd}
+              </div>
+            </div>
+          ))}
+        </motion.div>
+
+        {/* Active pool + Pool picker */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.15 }}
+          className="grid sm:grid-cols-2 gap-4"
+        >
+          {/* Active pool info */}
+          <div
+            className="rounded-2xl p-5"
+            style={{ background: "#111B2A", border: "1px solid #1E2A3B" }}
+          >
+            <div
+              className="text-xs font-semibold uppercase tracking-widest mb-3"
+              style={{ color: "#9AA6B2" }}
+            >
+              Active Pool
+            </div>
+            <div
+              className="text-lg font-extrabold mb-3"
+              style={{ color: "#F2F5FF" }}
+            >
+              {activePool.name}
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              {[
+                { label: "Workers", value: String(activePool.workers) },
+                { label: "Efficiency", value: "98.7%" },
+                { label: "Fee", value: activePool.fee },
+              ].map((stat) => (
+                <div
+                  key={stat.label}
+                  className="rounded-xl p-2"
+                  style={{ background: "#0D1520" }}
+                >
+                  <div
+                    className="text-sm font-bold"
+                    style={{ color: "#2ED47A" }}
+                  >
+                    {stat.value}
+                  </div>
+                  <div className="text-xs mt-0.5" style={{ color: "#9AA6B2" }}>
+                    {stat.label}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Pool selection */}
+          <div
+            className="rounded-2xl p-5"
+            style={{ background: "#111B2A", border: "1px solid #1E2A3B" }}
+          >
+            <div
+              className="text-xs font-semibold uppercase tracking-widest mb-3"
+              style={{ color: "#9AA6B2" }}
+            >
+              Select Pool
+            </div>
+            <div className="space-y-2">
+              {MINING_POOLS.map((pool) => (
+                <button
+                  key={pool.name}
+                  type="button"
+                  onClick={() => setSelectedPool(pool.name)}
+                  data-ocid="mining.pool.button"
+                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all duration-150"
+                  style={{
+                    background:
+                      selectedPool === pool.name
+                        ? "rgba(46,212,122,0.1)"
+                        : "#0D1520",
+                    border:
+                      selectedPool === pool.name
+                        ? "1px solid rgba(46,212,122,0.3)"
+                        : "1px solid transparent",
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    {selectedPool === pool.name && (
+                      <span
+                        className="w-1.5 h-1.5 rounded-full"
+                        style={{ background: "#2ED47A" }}
+                      />
+                    )}
+                    <span
+                      className="text-sm font-semibold"
+                      style={{
+                        color:
+                          selectedPool === pool.name ? "#2ED47A" : "#F2F5FF",
+                      }}
+                    >
+                      {pool.name}
+                    </span>
+                  </div>
+                  <div
+                    className="flex items-center gap-3 text-xs"
+                    style={{ color: "#9AA6B2" }}
+                  >
+                    <span>{pool.hashrateShare}</span>
+                    <span>Fee: {pool.fee}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Reward history table */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.2 }}
+          className="rounded-2xl overflow-hidden"
+          style={{ background: "#111B2A", border: "1px solid #1E2A3B" }}
+          data-ocid="mining.rewards.table"
+        >
+          <div
+            className="px-5 py-4 border-b"
+            style={{ borderColor: "#1E2A3B" }}
+          >
+            <h3 className="text-sm font-bold" style={{ color: "#F2F5FF" }}>
+              Reward History
+            </h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr style={{ borderBottom: "1px solid #1E2A3B" }}>
+                  {["Date", "Amount (BTC)", "USD Value", "Status"].map((h) => (
+                    <th
+                      key={h}
+                      className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider"
+                      style={{ color: "#9AA6B2" }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {REWARD_HISTORY.map((row, i) => (
+                  <tr
+                    key={row.date}
+                    style={{
+                      borderBottom:
+                        i < REWARD_HISTORY.length - 1
+                          ? "1px solid #1E2A3B"
+                          : "none",
+                    }}
+                    data-ocid={`mining.rewards.item.${i + 1}`}
+                  >
+                    <td
+                      className="px-5 py-3.5 text-sm"
+                      style={{ color: "#9AA6B2" }}
+                    >
+                      {row.date}
+                    </td>
+                    <td
+                      className="px-5 py-3.5 text-sm font-semibold"
+                      style={{ color: "#2ED47A" }}
+                    >
+                      {row.amount}
+                    </td>
+                    <td
+                      className="px-5 py-3.5 text-sm"
+                      style={{ color: "#F2F5FF" }}
+                    >
+                      {row.usd}
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <span
+                        className="px-2 py-0.5 rounded-full text-xs font-semibold"
+                        style={{
+                          background:
+                            row.status === "Confirmed"
+                              ? "rgba(46,212,122,0.12)"
+                              : "rgba(255,193,7,0.12)",
+                          color:
+                            row.status === "Confirmed" ? "#2ED47A" : "#FFC107",
+                          border:
+                            row.status === "Confirmed"
+                              ? "1px solid rgba(46,212,122,0.25)"
+                              : "1px solid rgba(255,193,7,0.25)",
+                        }}
+                      >
+                        {row.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </motion.div>
+      </div>
+    </div>
+  );
+}
+
+// ── Live Price History Hook ───────────────────────────────────────────────────
+function useLivePriceHistory(
+  _symbol: string,
+  basePrice: number,
+  volatility = 0.003,
+) {
+  const [history, setHistory] = useState<{ time: string; price: number }[]>(
+    () => {
+      const now = Date.now();
+      return Array.from({ length: 60 }, (_, i) => {
+        const t = new Date(now - (59 - i) * 2000);
+        const walk = 1 + (Math.random() - 0.5) * volatility * 20;
+        return {
+          time: t.toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          }),
+          price: basePrice * walk,
+        };
+      });
+    },
+  );
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setHistory((prev) => {
+        const last = prev[prev.length - 1].price;
+        const next = last * (1 + (Math.random() - 0.5) * volatility * 2);
+        const t = new Date();
+        return [
+          ...prev.slice(1),
+          {
+            time: t.toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+            }),
+            price: next,
+          },
+        ];
+      });
+    }, 2000);
+    return () => clearInterval(id);
+  }, [volatility]);
+
+  return history;
+}
+
+// ── Price Chart ───────────────────────────────────────────────────────────────
+const TIME_FRAMES: { label: string; vol: number }[] = [
+  { label: "1H", vol: 0.002 },
+  { label: "4H", vol: 0.004 },
+  { label: "1D", vol: 0.008 },
+  { label: "1W", vol: 0.016 },
+];
+
+function PriceChart({
+  symbol,
+  price,
+  change24h,
+}: { symbol: string; price: number; change24h: number }) {
+  const [tfIdx, setTfIdx] = useState(0);
+  const isUp = change24h >= 0;
+  const chartColor = isUp ? "#2ED47A" : "#E35D6A";
+  const history = useLivePriceHistory(symbol, price, TIME_FRAMES[tfIdx].vol);
+  const gradientId = `grad-${symbol}`;
+
+  return (
+    <div className="flex flex-col gap-3" data-ocid="trade.chart.panel">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <div className="flex items-baseline gap-3">
+            <span className="text-2xl font-bold" style={{ color: "#F2F5FF" }}>
+              ${fmt(price, 2)}
+            </span>
+            <span
+              className="text-sm font-semibold px-2 py-0.5 rounded-lg"
+              style={{
+                background: isUp
+                  ? "rgba(46,212,122,0.12)"
+                  : "rgba(227,93,106,0.12)",
+                color: chartColor,
+              }}
+            >
+              {isUp ? "+" : ""}
+              {fmt(change24h, 2)}%
+            </span>
+          </div>
+          <div className="text-xs mt-0.5" style={{ color: "#9AA6B2" }}>
+            {symbol}/USDT · 24h change
+          </div>
+        </div>
+        <div className="flex gap-1">
+          {TIME_FRAMES.map((tf, i) => (
+            <button
+              key={tf.label}
+              type="button"
+              onClick={() => setTfIdx(i)}
+              className="px-3 py-1 rounded-lg text-xs font-semibold transition-all duration-200"
+              style={{
+                background: tfIdx === i ? chartColor : "rgba(255,255,255,0.04)",
+                color: tfIdx === i ? "#060B14" : "#9AA6B2",
+                border: "1px solid",
+                borderColor: tfIdx === i ? chartColor : "#1E2A3B",
+              }}
+              data-ocid={`trade.chart.${tf.label.toLowerCase()}.tab`}
+            >
+              {tf.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Chart */}
+      <div style={{ height: 220 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart
+            data={history}
+            margin={{ top: 4, right: 4, left: 0, bottom: 0 }}
+          >
+            <defs>
+              <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={chartColor} stopOpacity={0.3} />
+                <stop offset="95%" stopColor={chartColor} stopOpacity={0.01} />
+              </linearGradient>
+            </defs>
+            <XAxis dataKey="time" hide />
+            <YAxis domain={["auto", "auto"]} hide />
+            <RechartsTooltip
+              contentStyle={{
+                background: "#111B2A",
+                border: "1px solid #1E2A3B",
+                borderRadius: 10,
+                color: "#F2F5FF",
+                fontSize: 12,
+              }}
+              formatter={(val: number) => [`$${fmt(val, 2)}`, "Price"]}
+              labelStyle={{ color: "#9AA6B2" }}
+            />
+            <Area
+              type="monotone"
+              dataKey="price"
+              stroke={chartColor}
+              strokeWidth={2}
+              fill={`url(#${gradientId})`}
+              dot={false}
+              isAnimationActive={false}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+// ── Order Book ────────────────────────────────────────────────────────────────
+function generateOrderRows(price: number, side: "ask" | "bid", count = 8) {
+  return Array.from({ length: count }, (_, i) => {
+    const spread = side === "ask" ? (i + 1) * 0.0003 : -(i + 1) * 0.0003;
+    const rowPrice = price * (1 + spread + (Math.random() - 0.5) * 0.0001);
+    const amount = +(Math.random() * 4 + 0.05).toFixed(4);
+    return { price: rowPrice, amount, total: rowPrice * amount };
+  });
+}
+
+function OrderBook({ price }: { price: number }) {
+  const [asks, setAsks] = useState(() => generateOrderRows(price, "ask"));
+  const [bids, setBids] = useState(() => generateOrderRows(price, "bid"));
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setAsks(generateOrderRows(price, "ask"));
+      setBids(generateOrderRows(price, "bid"));
+    }, 1500);
+    return () => clearInterval(id);
+  }, [price]);
+
+  const Row = ({
+    row,
+    side,
+  }: {
+    row: { price: number; amount: number; total: number };
+    side: "ask" | "bid";
+  }) => (
+    <div
+      className="grid grid-cols-3 gap-1 py-1 px-2 text-xs font-mono rounded transition-colors duration-200"
+      style={{ color: side === "ask" ? "#E35D6A" : "#2ED47A" }}
+    >
+      <span>${fmt(row.price, 2)}</span>
+      <span className="text-right" style={{ color: "#9AA6B2" }}>
+        {row.amount.toFixed(4)}
+      </span>
+      <span className="text-right" style={{ color: "#9AA6B2" }}>
+        ${fmt(row.total, 2)}
+      </span>
+    </div>
+  );
+
+  return (
+    <div
+      className="rounded-2xl p-4 flex flex-col gap-2 h-full"
+      style={{ background: "#111B2A", border: "1px solid #1E2A3B" }}
+      data-ocid="trade.orderbook.panel"
+    >
+      {/* Title */}
+      <div className="flex items-center gap-2 mb-1">
+        <span className="relative flex h-2 w-2">
+          <span
+            className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+            style={{ background: "#2ED47A" }}
+          />
+          <span
+            className="relative inline-flex rounded-full h-2 w-2"
+            style={{ background: "#2ED47A" }}
+          />
+        </span>
+        <span className="text-sm font-semibold" style={{ color: "#F2F5FF" }}>
+          Order Book
+        </span>
+      </div>
+      {/* Column header */}
+      <div
+        className="grid grid-cols-3 gap-1 px-2 text-xs font-semibold"
+        style={{ color: "#9AA6B2" }}
+      >
+        <span>Price</span>
+        <span className="text-right">Amount</span>
+        <span className="text-right">Total</span>
+      </div>
+      {/* Asks */}
+      <div className="flex flex-col-reverse gap-0.5">
+        {asks.map((r) => (
+          <Row key={r.price.toFixed(8)} row={r} side="ask" />
+        ))}
+      </div>
+      {/* Mid price */}
+      <div
+        className="text-center text-sm font-bold py-1 rounded-xl"
+        style={{ background: "rgba(46,212,122,0.08)", color: "#2ED47A" }}
+      >
+        ${fmt(price, 2)}
+      </div>
+      {/* Bids */}
+      <div className="flex flex-col gap-0.5">
+        {bids.map((r) => (
+          <Row key={r.price.toFixed(8)} row={r} side="bid" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Trading Terminal ──────────────────────────────────────────────────────────
+function TradingTerminal({
+  coins,
+  actor,
+  onOrderPlaced,
+}: {
+  coins: typeof FALLBACK_FEATURED;
+  actor?: ReturnType<typeof useActor>["actor"];
+  onOrderPlaced?: () => void;
+}) {
+  const [selectedSymbol, setSelectedSymbol] = useState(
+    coins[0]?.symbol ?? "BTC",
+  );
+  const coin = coins.find((c) => c.symbol === selectedSymbol) ?? coins[0];
+
+  if (!coin) return null;
+
+  return (
+    <div
+      className="flex flex-col gap-4 px-2 py-4 w-full"
+      data-ocid="trade.page"
+    >
+      {/* Coin selector tabs */}
+      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+        {coins.map((c) => (
+          <button
+            key={c.symbol}
+            type="button"
+            onClick={() => setSelectedSymbol(c.symbol)}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition-all duration-200 flex-shrink-0"
+            style={{
+              background:
+                selectedSymbol === c.symbol
+                  ? "rgba(46,212,122,0.12)"
+                  : "#111B2A",
+              border: "1px solid",
+              borderColor: selectedSymbol === c.symbol ? "#2ED47A" : "#1E2A3B",
+              color: selectedSymbol === c.symbol ? "#2ED47A" : "#9AA6B2",
+            }}
+            data-ocid={"trade.coin.tab"}
+          >
+            <span>{c.symbol}</span>
+            <span
+              className="text-xs"
+              style={{ color: c.change24h >= 0 ? "#2ED47A" : "#E35D6A" }}
+            >
+              {c.change24h >= 0 ? "+" : ""}
+              {fmt(c.change24h, 2)}%
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/* Chart */}
+      <div
+        className="rounded-2xl p-4"
+        style={{ background: "#111B2A", border: "1px solid #1E2A3B" }}
+      >
+        <PriceChart
+          symbol={coin.symbol}
+          price={coin.price}
+          change24h={coin.change24h}
+        />
+      </div>
+
+      {/* Order Book + Trade Widget */}
+      <div className="flex flex-col lg:flex-row gap-4">
+        {/* Order Book */}
+        <div className="lg:w-[40%]">
+          <OrderBook price={coin.price} />
+        </div>
+        {/* Trading Widget */}
+        <div className="lg:w-[60%] flex items-start">
+          <TradingWidget
+            coins={coins}
+            actor={actor}
+            onOrderPlaced={onOrderPlaced}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+export default function App() {
+  const { data: allCoins = [] } = useAllCoins();
+  const { data: featured = [] } = useFeaturedCoins();
+  const [authModal, setAuthModal] = useState<AuthModal>("none");
+  const [loggedInUser, setLoggedInUser] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<BottomTab>("home");
+  const { clear, identity } = useInternetIdentity();
+  const { actor } = useActor();
+
+  // Restore session: if identity is present on load, try to fetch profile
+  useEffect(() => {
+    if (!identity || !actor || loggedInUser) return;
+    void (async () => {
+      try {
+        const profile = await actor.getCallerUserProfile();
+        if (profile) setLoggedInUser(profile.name);
+      } catch {
+        // no profile, stay logged out
+      }
+    })();
+  }, [identity, actor, loggedInUser]);
+
+  const handleLogout = useCallback(() => {
+    clear();
+    setLoggedInUser(null);
+    toast.success("You've been logged out.");
+  }, [clear]);
+
+  const featuredCoins = featured.length > 0 ? featured : FALLBACK_FEATURED;
+  const marketCoins = allCoins.length > 0 ? allCoins : FALLBACK_MARKET;
+
+  function renderContent() {
+    switch (activeTab) {
+      case "trade":
+        return <TradingTerminal coins={featuredCoins} actor={actor} />;
+      case "assets":
+        return <AssetsTab coins={marketCoins} />;
+      case "mining":
+        return <MiningTab />;
+      case "profiles":
+        return loggedInUser ? (
+          <DashboardView
+            username={loggedInUser}
+            coins={marketCoins}
+            featuredCoins={featuredCoins}
+            onLogout={handleLogout}
+          />
+        ) : (
+          <div
+            className="min-h-screen flex flex-col items-center justify-center gap-6 px-4"
+            data-ocid="profiles.page"
+          >
+            <div
+              className="rounded-3xl p-10 flex flex-col items-center gap-6 max-w-md w-full"
+              style={{ background: "#111B2A", border: "1px solid #1E2A3B" }}
+            >
+              <div
+                className="w-16 h-16 rounded-2xl flex items-center justify-center"
+                style={{
+                  background: "rgba(46,212,122,0.1)",
+                  border: "1px solid rgba(46,212,122,0.2)",
+                }}
+              >
+                <User size={32} style={{ color: "#2ED47A" }} />
+              </div>
+              <h2 className="text-xl font-bold" style={{ color: "#F2F5FF" }}>
+                Sign In to View Profile
+              </h2>
+              <p className="text-sm text-center" style={{ color: "#9AA6B2" }}>
+                Connect your account to access your profile, portfolio, and
+                trade history.
+              </p>
+              <button
+                type="button"
+                onClick={() => setAuthModal("signin")}
+                className="w-full py-3 rounded-xl text-sm font-bold transition-all duration-200"
+                style={{ background: "#2ED47A", color: "#060B14" }}
+                data-ocid="profiles.signin.button"
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                onClick={() => setAuthModal("register")}
+                className="w-full py-3 rounded-xl text-sm font-semibold border transition-all duration-200"
+                style={{
+                  borderColor: "#1E2A3B",
+                  color: "#9AA6B2",
+                  background: "transparent",
+                }}
+                data-ocid="profiles.register.button"
+              >
+                Create Account
+              </button>
+            </div>
+          </div>
+        );
+      default: // home
+        return (
+          <>
+            <HeroSection featuredCoins={featuredCoins} />
+            <MarketSection coins={marketCoins} />
+            <FeaturesSection />
+            <Footer />
+          </>
+        );
+    }
+  }
+
+  return (
+    <div style={{ background: "#060B14", minHeight: "100vh" }}>
+      <SpaceBackground />
+      <div className="relative z-10" style={{ paddingBottom: 80 }}>
+        <Navbar
+          onOpenRegister={() => setAuthModal("register")}
+          onOpenSignIn={() => setAuthModal("signin")}
+          loggedInUser={loggedInUser}
+          onLogout={handleLogout}
+        />
+        <main>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeTab}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+            >
+              {renderContent()}
+            </motion.div>
+          </AnimatePresence>
+        </main>
+      </div>
+      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+      <Toaster theme="dark" />
+
+      <RegisterModal
+        open={authModal === "register"}
+        onOpenChange={(v) => setAuthModal(v ? "register" : "none")}
+        onSwitchToSignIn={() => setAuthModal("signin")}
+        onRegistered={(name) => setLoggedInUser(name)}
+      />
+      <SignInModal
+        open={authModal === "signin"}
+        onOpenChange={(v) => setAuthModal(v ? "signin" : "none")}
+        onSwitchToRegister={() => setAuthModal("register")}
+        onSignedIn={(name) => setLoggedInUser(name)}
+      />
+    </div>
+  );
+}

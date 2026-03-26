@@ -1,0 +1,140 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --radius: 1rem;
+    /* Dark crypto fintech palette */
+    --background: 0.09 0.025 250;
+    --foreground: 0.97 0.01 255;
+    --card: 0.17 0.04 248;
+    --card-foreground: 0.97 0.01 255;
+    --popover: 0.17 0.04 248;
+    --popover-foreground: 0.97 0.01 255;
+    --primary: 0.76 0.19 152;
+    --primary-foreground: 0.09 0.025 250;
+    --secondary: 0.24 0.04 248;
+    --secondary-foreground: 0.97 0.01 255;
+    --muted: 0.2 0.035 248;
+    --muted-foreground: 0.68 0.025 230;
+    --accent: 0.76 0.19 152;
+    --accent-foreground: 0.09 0.025 250;
+    --destructive: 0.62 0.15 20;
+    --destructive-foreground: 0.97 0.01 255;
+    --border: 0.24 0.04 248;
+    --input: 0.24 0.04 248;
+    --ring: 0.76 0.19 152;
+    --chart-1: 0.76 0.19 152;
+    --chart-2: 0.62 0.15 20;
+    --chart-3: 0.68 0.025 230;
+    --chart-4: 0.8 0.15 200;
+    --chart-5: 0.7 0.12 280;
+    --sidebar: 0.13 0.04 248;
+    --sidebar-foreground: 0.97 0.01 255;
+    --sidebar-primary: 0.76 0.19 152;
+    --sidebar-primary-foreground: 0.09 0.025 250;
+    --sidebar-accent: 0.24 0.04 248;
+    --sidebar-accent-foreground: 0.97 0.01 255;
+    --sidebar-border: 0.24 0.04 248;
+    --sidebar-ring: 0.76 0.19 152;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Inter", sans-serif;
+    background: linear-gradient(135deg, #060b14 0%, #0b1626 50%, #060b14 100%);
+    min-height: 100vh;
+  }
+}
+
+@layer utilities {
+  .card-surface {
+    background: #111b2a;
+    border: 1px solid #1e2a3b;
+    border-radius: 16px;
+  }
+
+  .card-surface-inner {
+    background: linear-gradient(135deg, #121e2f 0%, #0f1a28 100%);
+    border: 1px solid #1e2a3b;
+    border-radius: 16px;
+  }
+
+  .glow-green {
+    box-shadow: 0 0 20px rgba(46, 212, 122, 0.15), 0 0 40px
+      rgba(46, 212, 122, 0.05);
+  }
+
+  .text-green {
+    color: #2ed47a;
+  }
+
+  .text-red {
+    color: #e35d6a;
+  }
+
+  .bg-green {
+    background-color: #2ed47a;
+  }
+
+  .bg-space {
+    background: linear-gradient(135deg, #060b14 0%, #0b1626 60%, #060b14 100%);
+  }
+}
+
+/* Animated background particles */
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0px) rotate(0deg);
+    opacity: 0.3;
+  }
+  50% {
+    transform: translateY(-20px) rotate(180deg);
+    opacity: 0.6;
+  }
+}
+
+@keyframes pulse-glow {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 3s ease-in-out infinite;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.6s ease-out forwards;
+}
