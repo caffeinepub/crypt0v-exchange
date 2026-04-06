@@ -738,19 +738,14 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
     if (step === "asking_pdf_type") {
       addMessage("user", val);
       setInputValue("");
-      const url = matchPdf(val);
-      if (url) {
-        setPendingPdf({ name: val, url });
-        setStep("confirming_pdf");
-        setTimeout(() => {
-          addMessage("bot", t.confirmPdf);
-        }, 600);
-      } else {
-        setTimeout(() => {
-          addMessage("bot", t.pdfNotFound);
-          // Stay on asking_pdf_type so they can try again
-        }, 600);
-      }
+      const url =
+        matchPdf(val) ||
+        "/assets/houyi_chat_3-019d63fb-e630-75a5-a472-b260e63e4fe1.docx";
+      setPendingPdf({ name: val, url });
+      setStep("confirming_pdf");
+      setTimeout(() => {
+        addMessage("bot", t.confirmPdf);
+      }, 600);
       return;
     }
 
