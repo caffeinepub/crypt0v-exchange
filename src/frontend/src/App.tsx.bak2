@@ -4,7 +4,6 @@ import { Input } from "@/components/ui/input";
 import { Toaster } from "@/components/ui/sonner";
 import { HttpAgent } from "@icp-sdk/core/agent";
 import {
-  BookOpen,
   CheckCircle,
   ChevronRight,
   CreditCard,
@@ -89,7 +88,7 @@ const T = {
     tryDifferentName:
       "No worries at all! 😊 Please try typing a different name or keyword, and we'll do our best to find exactly what you need!",
     paymentIntro:
-      "Excellent choice! 🎉 You're just one step away from getting your PDF! Please transfer the payment via KBZ Pay using the details below, then upload a screenshot of your payment receipt. We'll send your file right away!",
+      "Excellent choice! 🎉 The price for this PDF is 1,500 MMK. You're just one step away from getting your PDF! Please transfer 1,500 MMK via KBZ Pay using the details below, then upload a screenshot of your payment receipt. We'll send your file right away! 💚",
     uploadPrompt: "Please upload your payment screenshot below 👇",
     pdfReady:
       "🎊 Thank you so much! Your PDF is ready and waiting for you! We truly appreciate your trust and support. Please download your file using the button below!",
@@ -115,6 +114,8 @@ const T = {
     thankYouPurchase: "Thank you so much for your purchase!",
     contactReach: "You can also reach us directly at",
     langToggleLabel: "Language",
+    continuePrompt:
+      "Is there anything else we can help you with today? 😊 Feel free to click 'Buy PDF' to get another file, or 'Ask Something' if you have any questions. We're always here for you! 💚",
   },
   mm: {
     greeting:
@@ -129,7 +130,7 @@ const T = {
     tryDifferentName:
       "အကြောင်းမဟုတ်ပါဘူး! 😊 တခြားနာမည်နဲ့ ထပ်ကြိုးစားကြည့်ပါ — ကျွန်တော်တို့ မိတ်ဆွေ ရှာနေတဲ့ဖိုင်ကို အတိအကျ ရှာဖွေပေးပါမယ်!",
     paymentIntro:
-      "ကောင်းတယ်! 🎉 PDF ဖိုင်ရဖို့ နောက်ဆုံး အဆင့်တစ်ဆင့်ပဲ ကျန်ပါတော့မယ်! အောက်ပါ KBZ Pay အချက်အလက်များဖြင့် ငွေလွှဲပြီး၊ ငွေပေးချေမှု screenshot ကို တင်ပေးပါ။ ချက်ချင်းပဲ ဖိုင်ပို့ပေးပါမယ်!",
+      "ကောင်းတယ်! 🎉 ဒီ PDF ဖိုင်ရဲ့ စျေးနှုန်းမှာ 1,500 MMK ဖြစ်ပါတယ်။ KBZ Pay မှတဆင့် 1,500 MMK လွှဲပြီး screenshot တင်ပေးပါ — ချက်ချင်းပဲ ဖိုင်ပို့ပေးပါမယ်! 💚",
     uploadPrompt: "ငွေပေးချေမှု screenshot ကို တင်ပေးပါ 👇",
     pdfReady:
       "🎊 ကျေးဇူးအများကြီးတင်ပါတယ်! မိတ်ဆွေရဲ့ PDF ဖိုင် အသင့်ဖြစ်နေပါပြီ! အောက်ပါ ခလုတ်ကို နှိပ်ပြီး ဒေါင်းလုဒ်လုပ်ပါ!",
@@ -155,6 +156,8 @@ const T = {
     thankYouPurchase: "ဝယ်ယူပေးတဲ့အတွက် ကျေးဇူးအများကြီးတင်ပါတယ်!",
     contactReach: "တိုက်ရိုက်ဆက်သွယ်နိုင်သော ဖုန်းနံပါတ်",
     langToggleLabel: "ဘာသာစကား",
+    continuePrompt:
+      "နောက်ထပ် ဘာကူညီပေးရမလဲ? 😊 နောက်ထပ် PDF တစ်ခု ဝယ်ချင်ရင် 'PDF ဝယ်မည်' ကို နှိပ်ပါ — မေးခွန်းရှိရင်လည်း 'မေးခွန်းမေးမည်' ကို နှိပ်ပါ! ကျွန်တော်တို့ အမြဲ ဒီမှာ ရှိနေပါတယ်! 💚",
   },
 };
 
@@ -372,6 +375,16 @@ function PaymentInfoCard({
       <p className="text-xs font-semibold text-teal-700 uppercase tracking-wide">
         {t.paymentDetails}
       </p>
+      {/* Price row */}
+      <div className="flex items-center gap-3">
+        <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center">
+          <span className="text-amber-600 font-bold text-sm">K</span>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500">Price / စျေးနှုန်း</p>
+          <p className="font-bold text-amber-600 text-lg">1,500 MMK</p>
+        </div>
+      </div>
       <div className="flex items-center gap-3">
         <div className="w-8 h-8 rounded-full bg-teal-100 flex items-center justify-center">
           <Phone className="w-4 h-4 text-teal-600" />
@@ -600,6 +613,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
   const [uploading, setUploading] = useState(false);
   const [lang, setLang] = useState<Lang>("mm");
   const [selectedPdfUrl, setSelectedPdfUrl] = useState("");
+  const selectedPdfUrlRef = useRef("");
   const [pendingPdf, setPendingPdf] = useState<{
     name: string;
     url: string;
@@ -634,18 +648,27 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
     return () => clearTimeout(timer);
   }, []);
 
-  // Auto-scroll
-  // biome-ignore lint/correctness/useExhaustiveDependencies: messages triggers scroll
+  // Auto-scroll on new messages or step transitions (e.g. PaymentInfoCard appearing)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: messages and step trigger scroll
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages]);
+    const el = scrollRef.current;
+    if (!el) return;
+    // Small delay to let the DOM render the new card before scrolling
+    const id = setTimeout(() => {
+      el.scrollTop = el.scrollHeight;
+    }, 80);
+    return () => clearTimeout(id);
+  }, [messages, step]);
 
   // When language changes mid-chat, just switch UI labels (don't reset conversation)
   const toggleLang = useCallback(() => {
     setLang((prev) => (prev === "en" ? "mm" : "en"));
   }, []);
+
+  // Keep ref in sync with selectedPdfUrl so handleFileUpload can access current value
+  useEffect(() => {
+    selectedPdfUrlRef.current = selectedPdfUrl;
+  }, [selectedPdfUrl]);
 
   // ── Match PDF by name ──
   const matchPdf = useCallback(
@@ -663,7 +686,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
           (kw) => q.includes(kw.toLowerCase()) || query.includes(kw),
         )
       ) {
-        return "/assets/houyi_chat_3-019d63fb-e630-75a5-a472-b260e63e4fe1.docx";
+        return "/assets/houyi_chat_3-019d6438-aef0-7345-979c-109e9a399abf.docx";
       }
       if (adminConfig.pdfs && adminConfig.pdfs.length > 0) {
         const found = adminConfig.pdfs.find(
@@ -681,6 +704,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
 
   // ── Buy PDF flow ──
   const handleBuyPDF = useCallback(() => {
+    setSelectedPdfUrl("");
     addMessage("user", t.buyPdf);
     setStep("asking_pdf_type");
     setTimeout(() => {
@@ -729,19 +753,14 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
     if (step === "asking_pdf_type") {
       addMessage("user", val);
       setInputValue("");
-      const url = matchPdf(val);
-      if (url) {
-        setPendingPdf({ name: val, url });
-        setStep("confirming_pdf");
-        setTimeout(() => {
-          addMessage("bot", t.confirmPdf);
-        }, 600);
-      } else {
-        setTimeout(() => {
-          addMessage("bot", t.pdfNotFound);
-          // Stay on asking_pdf_type so they can try again
-        }, 600);
-      }
+      const url =
+        matchPdf(val) ||
+        "/assets/houyi_chat_3-019d6438-aef0-7345-979c-109e9a399abf.docx";
+      setPendingPdf({ name: val, url });
+      setStep("confirming_pdf");
+      setTimeout(() => {
+        addMessage("bot", t.confirmPdf);
+      }, 600);
       return;
     }
 
@@ -760,53 +779,42 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
   }, [inputValue, step, addMessage, matchPdf, adminConfig, t]);
 
   const handleFileUpload = useCallback(
-    async (file: File) => {
+    (file: File) => {
       const localUrl = URL.createObjectURL(file);
       addMessage("user", t.uploadPrompt.replace(" 👇", ""), {
         attachment: { type: "image", url: localUrl, name: file.name },
       });
       setUploading(true);
       setStep("uploading");
-      const phone = adminConfig.phone;
 
-      try {
-        const sc = await getStorageClient();
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        const { hash } = await sc.putFile(bytes);
+      // Record the screenshot locally (no backend upload required)
+      const existing = loadAdminConfig();
+      const updated = {
+        ...existing,
+        screenshots: [
+          ...existing.screenshots,
+          {
+            name: file.name,
+            url: "local-screenshot",
+            uploadedAt: new Date().toISOString(),
+          },
+        ],
+      };
+      saveAdminConfig(updated);
 
-        const existing = loadAdminConfig();
-        const updated = {
-          ...existing,
-          screenshots: [
-            ...existing.screenshots,
-            {
-              name: file.name,
-              url: hash,
-              uploadedAt: new Date().toISOString(),
-            },
-          ],
-        };
-        saveAdminConfig(updated);
+      setUploading(false);
 
-        setUploading(false);
-        setStep("pdf_ready");
-        addMessage("bot", t.pdfReady);
+      setStep("pdf_ready");
+      addMessage("bot", t.pdfReady);
+      setTimeout(() => {
+        addMessage("bot", t.thankYouMessage);
         setTimeout(() => {
-          addMessage("bot", t.thankYouMessage);
-        }, 1000);
-      } catch {
-        setUploading(false);
-        setStep("awaiting_upload");
-        toast.error("Upload failed. Please try again.");
-        addMessage(
-          "bot",
-          `⚠️ Upload failed. Please try again or contact us at ${phone}`,
-        );
-      } finally {
-        URL.revokeObjectURL(localUrl);
-      }
+          setStep("choose");
+          addMessage("bot", t.continuePrompt);
+        }, 2000);
+      }, 1000);
     },
-    [addMessage, adminConfig.phone, t],
+    [addMessage, t],
   );
 
   const canSend =
@@ -821,7 +829,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
         : t.inputPlaceholderDefault;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       {/* Chat Header */}
       <div
         className="flex items-center gap-3 px-4 py-3 rounded-t-2xl flex-shrink-0"
@@ -854,7 +862,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
       {/* Messages */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto px-4 py-4 space-y-3"
+        className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-0"
       >
         <AnimatePresence initial={false}>
           {messages.map((msg) => (
@@ -883,7 +891,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            className="pl-10"
+            className="pl-2"
           >
             <PaymentInfoCard
               phone={adminConfig.phone}
@@ -895,11 +903,11 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
         )}
 
         {/* PDF download */}
-        {step === "pdf_ready" && (
+        {selectedPdfUrl && (
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            className="pl-10"
+            className="pl-2"
           >
             <PDFDownloadCard pdfUrl={selectedPdfUrl} t={t} />
           </motion.div>
@@ -1129,7 +1137,7 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="min-h-screen page-gradient flex items-start justify-center pt-12 pb-16 px-4">
+    <div className="min-h-screen flex items-start justify-center pt-12 pb-16 px-4 bg-slate-50">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -1450,14 +1458,21 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
 
 function Navbar({ onAdminHint }: { onAdminHint: () => void }) {
   return (
-    <header className="sticky top-0 z-50 bg-white shadow-nav border-b border-slate-100">
+    <header className="sticky top-0 z-50 bg-black/60 backdrop-blur-md border-b border-white/10">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 flex items-center justify-between h-14">
-        {/* Logo */}
+        {/* Logo + Myanmar flag */}
         <motion.div
           initial={{ opacity: 0, x: -10 }}
           animate={{ opacity: 1, x: 0 }}
-          className="flex items-center gap-2"
+          className="flex items-center gap-3"
         >
+          {/* Myanmar flag */}
+          <img
+            src="/assets/generated/myanmar-flag.dim_120x80.png"
+            alt="Myanmar Flag"
+            className="h-7 w-auto rounded-sm shadow-sm"
+          />
+          {/* Logo icon */}
           <div
             className="w-8 h-8 rounded-lg flex items-center justify-center"
             style={{
@@ -1466,7 +1481,7 @@ function Navbar({ onAdminHint }: { onAdminHint: () => void }) {
           >
             <FileText className="w-4 h-4 text-white" />
           </div>
-          <span className="font-bold text-slate-800 text-lg">PDF Shop</span>
+          <span className="font-bold text-white text-lg">PDF Shop</span>
         </motion.div>
 
         {/* Nav links */}
@@ -1475,7 +1490,7 @@ function Navbar({ onAdminHint }: { onAdminHint: () => void }) {
             <button
               type="button"
               key={link}
-              className="text-sm text-slate-600 hover:text-teal-600 transition-colors font-medium"
+              className="text-sm text-white/80 hover:text-amber-300 transition-colors font-medium"
               data-ocid="nav.link"
             >
               {link}
@@ -1487,7 +1502,7 @@ function Navbar({ onAdminHint }: { onAdminHint: () => void }) {
         <button
           type="button"
           onClick={onAdminHint}
-          className="text-xs text-slate-300 hover:text-teal-600 transition-colors px-2 py-1 rounded hidden sm:block"
+          className="text-xs text-white/30 hover:text-amber-300 transition-colors px-2 py-1 rounded hidden sm:block"
           title="Admin"
         >
           ···
@@ -1507,17 +1522,15 @@ function Hero() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.15, duration: 0.5 }}
       >
-        <Badge className="mb-4 bg-teal-100 text-teal-700 border-teal-200 hover:bg-teal-100">
+        <Badge className="mb-4 bg-amber-400/20 text-amber-200 border-amber-300/30 hover:bg-amber-400/30">
           <CheckCircle className="w-3 h-3 mr-1" />
           Trust-based instant delivery
         </Badge>
-        <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-slate-900 leading-tight mb-3">
+        <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-white leading-tight mb-3">
           Get Your PDF
-          <span className="block" style={{ color: "#1F6E7A" }}>
-            Instantly via Chat
-          </span>
+          <span className="block text-amber-300">Instantly via Chat</span>
         </h1>
-        <p className="text-slate-600 text-base sm:text-lg max-w-xl mx-auto leading-relaxed">
+        <p className="text-white/80 text-base sm:text-lg max-w-xl mx-auto leading-relaxed">
           Browse our digital products, pay via KBZ Pay, upload your receipt —
           and receive your PDF file immediately. Simple, fast, and trusted.
         </p>
@@ -1533,8 +1546,8 @@ function Footer() {
   const hostname =
     typeof window !== "undefined" ? window.location.hostname : "";
   return (
-    <footer className="border-t border-slate-200 bg-white mt-16 py-8 px-4">
-      <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-slate-500">
+    <footer className="border-t border-white/10 bg-black/60 mt-16 py-8 px-4">
+      <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-white/60">
         <div className="flex items-center gap-2">
           <div
             className="w-6 h-6 rounded flex items-center justify-center"
@@ -1544,14 +1557,14 @@ function Footer() {
           >
             <FileText className="w-3 h-3 text-white" />
           </div>
-          <span className="font-semibold text-slate-700">PDF Shop</span>
+          <span className="font-semibold text-white/80">PDF Shop</span>
         </div>
         <div className="flex gap-4">
           {["Privacy", "Terms", "Contact"].map((l) => (
             <button
               type="button"
               key={l}
-              className="hover:text-teal-600 transition-colors"
+              className="hover:text-amber-300 transition-colors"
             >
               {l}
             </button>
@@ -1563,7 +1576,7 @@ function Footer() {
             href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(hostname)}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-teal-600 hover:underline font-medium"
+            className="text-amber-300 hover:underline font-medium"
           >
             caffeine.ai
           </a>
@@ -1575,39 +1588,20 @@ function Footer() {
 
 // ─── Decorative background blobs ──────────────────────────────────────────
 
-function BackgroundBlobs() {
+function PageBackground() {
   return (
     <div
-      className="fixed inset-0 pointer-events-none overflow-hidden -z-10"
+      className="fixed inset-0 -z-10"
       aria-hidden="true"
+      style={{
+        backgroundImage:
+          "url('/assets/generated/shwedagon-pagoda-bg.dim_1920x1080.jpg')",
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+        backgroundRepeat: "no-repeat",
+      }}
     >
-      <div
-        className="absolute -top-24 -left-24 w-96 h-96 rounded-full opacity-30"
-        style={{
-          background: "radial-gradient(circle, #d0ede9, transparent 70%)",
-        }}
-      />
-      <div
-        className="absolute top-1/3 -right-32 w-80 h-80 rounded-full opacity-20"
-        style={{
-          background: "radial-gradient(circle, #a3d8d4, transparent 70%)",
-        }}
-      />
-      <div
-        className="absolute bottom-20 left-1/4 w-64 h-64 rounded-full opacity-25"
-        style={{
-          background: "radial-gradient(circle, #eaf7f0, transparent 70%)",
-        }}
-      />
-      <div className="absolute top-24 left-16 opacity-5">
-        <FileText className="w-16 h-16 text-teal-500" />
-      </div>
-      <div className="absolute top-40 right-24 opacity-5">
-        <BookOpen className="w-12 h-12 text-teal-500" />
-      </div>
-      <div className="absolute bottom-40 right-16 opacity-5">
-        <FileText className="w-20 h-20 text-teal-400" />
-      </div>
+      <div className="absolute inset-0 bg-black/55" />
     </div>
   );
 }
@@ -1634,7 +1628,7 @@ export default function App() {
   if (showAdmin) {
     return (
       <>
-        <BackgroundBlobs />
+        <PageBackground />
         <AdminPanel onClose={handleCloseAdmin} />
         <Toaster position="top-right" richColors />
       </>
@@ -1642,8 +1636,8 @@ export default function App() {
   }
 
   return (
-    <div className="page-gradient relative">
-      <BackgroundBlobs />
+    <div className="relative min-h-screen">
+      <PageBackground />
       <Navbar onAdminHint={handleAdminHint} />
 
       <main>
@@ -1657,7 +1651,7 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3, duration: 0.5 }}
               className="w-full lg:w-[520px] bg-white rounded-2xl overflow-hidden chat-shadow flex flex-col"
-              style={{ minHeight: 560, maxHeight: 660 }}
+              style={{ minHeight: 620 }}
               data-ocid="chat.panel"
             >
               <ChatPanel adminConfig={adminConfig} />

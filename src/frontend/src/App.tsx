@@ -61,6 +61,7 @@ interface PdfEntry {
   name: string;
   burmeseName: string;
   url: string;
+  fileName?: string;
 }
 
 interface AdminConfig {
@@ -502,11 +503,59 @@ function UploadZone({
 
 function PDFDownloadCard({
   pdfUrl,
+  fileName,
   t,
 }: {
   pdfUrl: string;
+  fileName?: string;
   t: (typeof T)["en"];
 }) {
+  const [downloading, setDownloading] = useState(false);
+
+  const getMimeType = (name: string): string => {
+    const ext = name.split(".").pop()?.toLowerCase() || "";
+    const mimeMap: Record<string, string> = {
+      pdf: "application/pdf",
+      doc: "application/msword",
+      docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      xls: "application/vnd.ms-excel",
+      xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      ppt: "application/vnd.ms-powerpoint",
+      pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      txt: "text/plain",
+      zip: "application/zip",
+      png: "image/png",
+      jpg: "image/jpeg",
+      jpeg: "image/jpeg",
+    };
+    return mimeMap[ext] || "application/octet-stream";
+  };
+
+  const handleDownload = async () => {
+    if (!pdfUrl) return;
+    setDownloading(true);
+    try {
+      const response = await fetch(pdfUrl);
+      const blob = await response.blob();
+      const dlFileName = fileName || "document";
+      const mimeType = getMimeType(dlFileName);
+      const typedBlob = new Blob([blob], { type: mimeType });
+      const objectUrl = URL.createObjectURL(typedBlob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = dlFileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch {
+      // fallback to direct link
+      window.open(pdfUrl, "_blank");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
     <div className="mt-2 rounded-xl border border-teal-200 bg-gradient-to-br from-teal-50 to-green-50 p-4">
       <div className="flex items-center gap-3 mb-3">
@@ -519,24 +568,22 @@ function PDFDownloadCard({
         </div>
       </div>
       {pdfUrl ? (
-        <a
-          href={pdfUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          download
+        <Button
+          onClick={handleDownload}
+          disabled={!pdfUrl || downloading}
+          className="w-full text-white"
           data-ocid="chat.primary_button"
-          className="block"
+          style={{
+            background: "linear-gradient(135deg, #2E6F7C 0%, #245E69 100%)",
+          }}
         >
-          <Button
-            className="w-full text-white"
-            style={{
-              background: "linear-gradient(135deg, #2E6F7C 0%, #245E69 100%)",
-            }}
-          >
+          {downloading ? (
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+          ) : (
             <Download className="w-4 h-4 mr-2" />
-            {t.downloadPdf}
-          </Button>
-        </a>
+          )}
+          {downloading ? "Downloading..." : t.downloadPdf}
+        </Button>
       ) : (
         <Button
           disabled
@@ -617,7 +664,9 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
   const [pendingPdf, setPendingPdf] = useState<{
     name: string;
     url: string;
+    fileName?: string;
   } | null>(null);
+  const [selectedPdfFileName, setSelectedPdfFileName] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -672,7 +721,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
 
   // ── Match PDF by name ──
   const matchPdf = useCallback(
-    (query: string): string => {
+    (query: string): { url: string; fileName: string } => {
       const q = query.toLowerCase().trim();
       // Special keyword match for investing file
       const INVESTING_KEYWORDS = [
@@ -686,7 +735,10 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
           (kw) => q.includes(kw.toLowerCase()) || query.includes(kw),
         )
       ) {
-        return "/assets/houyi_chat_3-019d6438-aef0-7345-979c-109e9a399abf.docx";
+        return {
+          url: "/assets/houyi_chat_3-019d6438-aef0-7345-979c-109e9a399abf.docx",
+          fileName: "houyi_chat_3.docx",
+        };
       }
       if (adminConfig.pdfs && adminConfig.pdfs.length > 0) {
         const found = adminConfig.pdfs.find(
@@ -694,10 +746,11 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
             p.name.toLowerCase().includes(q) ||
             p.burmeseName.includes(query.trim()),
         );
-        if (found?.url) return found.url;
+        if (found?.url)
+          return { url: found.url, fileName: found.fileName || found.name };
       }
       // Fallback to legacy single PDF
-      return adminConfig.pdfUrl || "";
+      return { url: adminConfig.pdfUrl || "", fileName: "document" };
     },
     [adminConfig],
   );
@@ -705,6 +758,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
   // ── Buy PDF flow ──
   const handleBuyPDF = useCallback(() => {
     setSelectedPdfUrl("");
+    setSelectedPdfFileName("");
     addMessage("user", t.buyPdf);
     setStep("asking_pdf_type");
     setTimeout(() => {
@@ -728,6 +782,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
     if (!pendingPdf) return;
     addMessage("user", t.confirmYes);
     setSelectedPdfUrl(pendingPdf.url);
+    setSelectedPdfFileName(pendingPdf.fileName || "");
     setPendingPdf(null);
     setStep("awaiting_upload");
     setTimeout(() => {
@@ -753,10 +808,12 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
     if (step === "asking_pdf_type") {
       addMessage("user", val);
       setInputValue("");
+      const match = matchPdf(val);
       const url =
-        matchPdf(val) ||
+        match.url ||
         "/assets/houyi_chat_3-019d6438-aef0-7345-979c-109e9a399abf.docx";
-      setPendingPdf({ name: val, url });
+      const matchFileName = match.fileName || "houyi_chat_3.docx";
+      setPendingPdf({ name: val, url, fileName: matchFileName });
       setStep("confirming_pdf");
       setTimeout(() => {
         addMessage("bot", t.confirmPdf);
@@ -909,7 +966,11 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
             animate={{ opacity: 1, y: 0 }}
             className="pl-2"
           >
-            <PDFDownloadCard pdfUrl={selectedPdfUrl} t={t} />
+            <PDFDownloadCard
+              pdfUrl={selectedPdfUrl}
+              fileName={selectedPdfFileName}
+              t={t}
+            />
           </motion.div>
         )}
       </div>
@@ -1071,10 +1132,10 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
       const bytes = new Uint8Array(await pdfFile.arrayBuffer());
       const { hash } = await sc.putFile(bytes);
       const url = await sc.getDirectURL(hash);
-      const updated = { ...cfg, pdfUrl: url };
+      const updated = { ...cfg, pdfUrl: url, pdfFileName: pdfFile?.name };
       setCfg(updated);
       saveAdminConfig(updated);
-      toast.success("PDF uploaded and URL saved!");
+      toast.success("File uploaded and URL saved!");
       setPdfFile(null);
     } catch {
       toast.error("PDF upload failed.");
@@ -1123,12 +1184,12 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
       const url = await sc.getDirectURL(hash);
       setCfg((prev) => {
         const newPdfs = [...(prev.pdfs || [])];
-        newPdfs[idx] = { ...newPdfs[idx], url };
+        newPdfs[idx] = { ...newPdfs[idx], url, fileName: file.name };
         const updated = { ...prev, pdfs: newPdfs };
         saveAdminConfig(updated);
         return updated;
       });
-      toast.success("PDF uploaded!");
+      toast.success("File uploaded!");
     } catch {
       toast.error("PDF upload failed.");
     } finally {
@@ -1213,7 +1274,7 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-slate-700 text-sm uppercase tracking-wide">
-              PDF Files ({(cfg.pdfs || []).length})
+              Files ({(cfg.pdfs || []).length})
             </h3>
             <Button
               type="button"
@@ -1224,7 +1285,7 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
               data-ocid="admin.primary_button"
             >
               <Plus className="w-3.5 h-3.5 mr-1" />
-              Add PDF
+              Add File
             </Button>
           </div>
 
@@ -1234,7 +1295,7 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
               data-ocid="admin.empty_state"
             >
               <FileText className="w-8 h-8 mx-auto mb-2 opacity-30" />
-              <p>No PDFs added yet. Click &ldquo;Add PDF&rdquo; to start.</p>
+              <p>No files added yet. Click &ldquo;Add File&rdquo; to start.</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -1317,13 +1378,13 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
                         </>
                       ) : (
                         <>
-                          <Upload className="w-4 h-4" /> Upload PDF file
+                          <Upload className="w-4 h-4" /> Upload File
                         </>
                       )}
                       <input
                         id={`pdf-file-${entry.id}`}
                         type="file"
-                        accept="application/pdf"
+                        accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip"
                         className="hidden"
                         onChange={(e) => {
                           const f = e.target.files?.[0];
@@ -1382,7 +1443,7 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
             <input
               ref={pdfInputRef}
               type="file"
-              accept="application/pdf"
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip"
               className="hidden"
               onChange={(e) => setPdfFile(e.target.files?.[0] ?? null)}
             />
@@ -1407,7 +1468,7 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
               ) : (
                 <>
                   <Upload className="w-4 h-4 mr-2" />
-                  Upload PDF
+                  Upload File
                 </>
               )}
             </Button>
