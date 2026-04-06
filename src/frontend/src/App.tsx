@@ -114,6 +114,8 @@ const T = {
     thankYouPurchase: "Thank you so much for your purchase!",
     contactReach: "You can also reach us directly at",
     langToggleLabel: "Language",
+    continuePrompt:
+      "Is there anything else we can help you with today? 😊 Feel free to click 'Buy PDF' to get another file, or 'Ask Something' if you have any questions. We're always here for you! 💚",
   },
   mm: {
     greeting:
@@ -154,6 +156,8 @@ const T = {
     thankYouPurchase: "ဝယ်ယူပေးတဲ့အတွက် ကျေးဇူးအများကြီးတင်ပါတယ်!",
     contactReach: "တိုက်ရိုက်ဆက်သွယ်နိုင်သော ဖုန်းနံပါတ်",
     langToggleLabel: "ဘာသာစကား",
+    continuePrompt:
+      "နောက်ထပ် ဘာကူညီပေးရမလဲ? 😊 နောက်ထပ် PDF တစ်ခု ဝယ်ချင်ရင် 'PDF ဝယ်မည်' ကို နှိပ်ပါ — မေးခွန်းရှိရင်လည်း 'မေးခွန်းမေးမည်' ကို နှိပ်ပါ! ကျွန်တော်တို့ အမြဲ ဒီမှာ ရှိနေပါတယ်! 💚",
   },
 };
 
@@ -609,6 +613,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
   const [uploading, setUploading] = useState(false);
   const [lang, setLang] = useState<Lang>("mm");
   const [selectedPdfUrl, setSelectedPdfUrl] = useState("");
+  const selectedPdfUrlRef = useRef("");
   const [pendingPdf, setPendingPdf] = useState<{
     name: string;
     url: string;
@@ -643,18 +648,27 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
     return () => clearTimeout(timer);
   }, []);
 
-  // Auto-scroll
-  // biome-ignore lint/correctness/useExhaustiveDependencies: messages triggers scroll
+  // Auto-scroll on new messages or step transitions (e.g. PaymentInfoCard appearing)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: messages and step trigger scroll
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages]);
+    const el = scrollRef.current;
+    if (!el) return;
+    // Small delay to let the DOM render the new card before scrolling
+    const id = setTimeout(() => {
+      el.scrollTop = el.scrollHeight;
+    }, 80);
+    return () => clearTimeout(id);
+  }, [messages, step]);
 
   // When language changes mid-chat, just switch UI labels (don't reset conversation)
   const toggleLang = useCallback(() => {
     setLang((prev) => (prev === "en" ? "mm" : "en"));
   }, []);
+
+  // Keep ref in sync with selectedPdfUrl so handleFileUpload can access current value
+  useEffect(() => {
+    selectedPdfUrlRef.current = selectedPdfUrl;
+  }, [selectedPdfUrl]);
 
   // ── Match PDF by name ──
   const matchPdf = useCallback(
@@ -764,53 +778,56 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
   }, [inputValue, step, addMessage, matchPdf, adminConfig, t]);
 
   const handleFileUpload = useCallback(
-    async (file: File) => {
+    (file: File) => {
       const localUrl = URL.createObjectURL(file);
       addMessage("user", t.uploadPrompt.replace(" 👇", ""), {
         attachment: { type: "image", url: localUrl, name: file.name },
       });
       setUploading(true);
       setStep("uploading");
-      const phone = adminConfig.phone;
 
-      try {
-        const sc = await getStorageClient();
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        const { hash } = await sc.putFile(bytes);
+      // Record the screenshot locally (no backend upload required)
+      const existing = loadAdminConfig();
+      const updated = {
+        ...existing,
+        screenshots: [
+          ...existing.screenshots,
+          {
+            name: file.name,
+            url: "local-screenshot",
+            uploadedAt: new Date().toISOString(),
+          },
+        ],
+      };
+      saveAdminConfig(updated);
 
-        const existing = loadAdminConfig();
-        const updated = {
-          ...existing,
-          screenshots: [
-            ...existing.screenshots,
-            {
-              name: file.name,
-              url: hash,
-              uploadedAt: new Date().toISOString(),
-            },
-          ],
-        };
-        saveAdminConfig(updated);
+      setUploading(false);
 
-        setUploading(false);
-        setStep("pdf_ready");
-        addMessage("bot", t.pdfReady);
-        setTimeout(() => {
-          addMessage("bot", t.thankYouMessage);
-        }, 1000);
-      } catch {
-        setUploading(false);
-        setStep("awaiting_upload");
-        toast.error("Upload failed. Please try again.");
-        addMessage(
-          "bot",
-          `⚠️ Upload failed. Please try again or contact us at ${phone}`,
-        );
-      } finally {
-        URL.revokeObjectURL(localUrl);
+      // Auto-deliver the file immediately upon picture upload
+      const deliverUrl = selectedPdfUrlRef.current;
+      if (deliverUrl) {
+        const link = document.createElement("a");
+        link.href = deliverUrl;
+        link.download = deliverUrl.split("/").pop() || "file";
+        link.target = "_blank";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
       }
+
+      setStep("pdf_ready");
+      addMessage("bot", t.pdfReady);
+      setTimeout(() => {
+        addMessage("bot", t.thankYouMessage);
+        setTimeout(() => {
+          setStep("choose");
+          addMessage("bot", t.continuePrompt);
+        }, 2000);
+      }, 1000);
+
+      URL.revokeObjectURL(localUrl);
     },
-    [addMessage, adminConfig.phone, t],
+    [addMessage, t],
   );
 
   const canSend =
@@ -825,7 +842,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
         : t.inputPlaceholderDefault;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       {/* Chat Header */}
       <div
         className="flex items-center gap-3 px-4 py-3 rounded-t-2xl flex-shrink-0"
@@ -858,7 +875,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
       {/* Messages */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto px-4 py-4 space-y-3"
+        className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-0"
       >
         <AnimatePresence initial={false}>
           {messages.map((msg) => (
@@ -887,7 +904,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            className="pl-10"
+            className="pl-2"
           >
             <PaymentInfoCard
               phone={adminConfig.phone}
@@ -903,7 +920,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            className="pl-10"
+            className="pl-2"
           >
             <PDFDownloadCard pdfUrl={selectedPdfUrl} t={t} />
           </motion.div>
@@ -1647,7 +1664,7 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3, duration: 0.5 }}
               className="w-full lg:w-[520px] bg-white rounded-2xl overflow-hidden chat-shadow flex flex-col"
-              style={{ minHeight: 560, maxHeight: 660 }}
+              style={{ minHeight: 620 }}
               data-ocid="chat.panel"
             >
               <ChatPanel adminConfig={adminConfig} />
