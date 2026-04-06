@@ -1,35 +1,39 @@
 # PDF Shop Chat
 
 ## Current State
-- Admin panel exists with file upload (PDF/DOCX/etc.) and payment screenshot sections
-- File upload uses `StorageClient` which requires ICP authentication — admin is not logged in, so uploads always fail with an error
-- Payment screenshots are saved as `{ name, url: 'local-screenshot', uploadedAt }` — the actual image data is not stored, so admin cannot view them
-- Screenshots section in admin shows name and timestamp only, no preview/view capability
-- All buttons (Save, Add File, Delete, Upload) exist but the upload buttons silently fail due to auth requirement
+- Admin panel has multi-PDF management: each entry has English name, Burmese name, file URL
+- PdfEntry interface does NOT have a price field
+- Payment info card shows hardcoded '1,500 MMK' price
+- Screenshots section exists: shows thumbnail + View button + Delete
+- File matching uses adminConfig.pdfs to find by name/burmeseName
+- Legacy single PDF fallback still exists
 
 ## Requested Changes (Diff)
 
 ### Add
-- Base64 file storage: when admin uploads a file, read it as ArrayBuffer, convert to base64 data URL, and store in localStorage (no auth, no backend needed)
-- Screenshot viewing: when customer uploads payment screenshot, save the actual base64 image data to the screenshots array; in admin panel show a clickable thumbnail / "View" button that opens the image in a new tab
-- Screenshot delete button: allow admin to delete individual screenshots
+- `price` field to `PdfEntry` interface (e.g. "1,500 MMK")
+- Price input field in admin panel for each PDF entry
+- Display per-file price in PaymentInfoCard and chat flow (replace hardcoded 1,500 MMK)
+- Larger, more visible payment screenshot section in admin panel (bigger thumbnails, scrollable grid)
+- "Download" button for each screenshot in admin panel so admin can save it locally
+- Per-file price shown in chat confirmation message and payment card
 
 ### Modify
-- `handleUploadPdf` (legacy): replace `StorageClient` call with base64 conversion and localStorage storage
-- `handleUploadPdfEntry` (multi-PDF): replace `StorageClient` call with base64 conversion and localStorage storage
-- `handleFileUpload` in ChatPanel: save actual base64 image data instead of `'local-screenshot'` string
-- `PDFDownloadCard`: if URL is a base64 data URL (starts with `data:`), skip the `fetch()` step and create blob directly from it
-- Admin screenshots section: show image thumbnail + View button + Delete button for each screenshot
-- File upload inputs in admin: accept all document types (pdf, doc, docx, xls, xlsx, ppt, pptx, txt, zip)
+- PaymentInfoCard to receive and display the specific file's price (from PdfEntry.price or fallback 1,500 MMK)
+- Chat flow: when file is confirmed, show the file's own price in the payment messages
+- Admin panel screenshot section: improve layout with larger thumbnails (64x64 or more), full-width grid
+- File matching logic: ensure exact name match is returned (already works, just verify)
+- Remove legacy single-PDF upload section (confusing, replaced by multi-PDF)
 
 ### Remove
-- `getStorageClient()` function and `StorageClient` import (no longer needed)
-- `HttpAgent` and `loadConfig` imports if only used by getStorageClient
+- Legacy single PDF upload section from admin panel (the "Legacy PDF File (Fallback)" section)
 
 ## Implementation Plan
-1. Replace file upload logic in admin panel: use `FileReader.readAsDataURL()` to get base64, store directly in localStorage as the `url` field of PdfEntry
-2. Fix `PDFDownloadCard.handleDownload`: detect `data:` URLs and convert directly to blob without fetch
-3. Fix screenshot capture in `handleFileUpload`: use `FileReader.readAsDataURL()` to capture image as base64, store in screenshots array
-4. Update admin screenshots UI: show thumbnail image, a View button (opens base64 in new tab), and a Delete button
-5. Remove unused StorageClient/agent imports
-6. Validate and build
+1. Add `price` field to `PdfEntry` interface
+2. Add price input in admin panel per-entry form
+3. Update `matchPdf` return value to include the file's price
+4. Pass per-file price through chat flow to PaymentInfoCard and payment messages
+5. Update PaymentInfoCard to show dynamic price
+6. Improve screenshots section: larger thumbnails, grid layout, Download button
+7. Remove legacy PDF section
+8. Auto-save entries when file is uploaded (already done, verify)

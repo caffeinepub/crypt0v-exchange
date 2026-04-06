@@ -57,6 +57,7 @@ interface PdfEntry {
   id: string;
   name: string;
   burmeseName: string;
+  price: string;
   url: string;
   fileName?: string;
 }
@@ -355,10 +356,12 @@ function PillButton({
 function PaymentInfoCard({
   phone,
   kbz,
+  price,
   t,
 }: {
   phone: string;
   kbz: string;
+  price: string;
   t: (typeof T)["en"];
 }) {
   return (
@@ -373,7 +376,7 @@ function PaymentInfoCard({
         </div>
         <div>
           <p className="text-xs text-slate-500">Price / စျေးနှုန်း</p>
-          <p className="font-bold text-amber-600 text-lg">1,500 MMK</p>
+          <p className="font-bold text-amber-600 text-lg">{price}</p>
         </div>
       </div>
       <div className="flex items-center gap-3">
@@ -670,7 +673,9 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
     name: string;
     url: string;
     fileName?: string;
+    price?: string;
   } | null>(null);
+  const [selectedPdfPrice, setSelectedPdfPrice] = useState("1,500 MMK");
   const [selectedPdfFileName, setSelectedPdfFileName] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -726,7 +731,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
 
   // ── Match PDF by name ──
   const matchPdf = useCallback(
-    (query: string): { url: string; fileName: string } => {
+    (query: string): { url: string; fileName: string; price: string } => {
       const q = query.toLowerCase().trim();
       // Special keyword match for investing file
       const INVESTING_KEYWORDS = [
@@ -743,6 +748,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
         return {
           url: "/assets/houyi_chat_3-019d6438-aef0-7345-979c-109e9a399abf.docx",
           fileName: "houyi_chat_3.docx",
+          price: "1,500 MMK",
         };
       }
       if (adminConfig.pdfs && adminConfig.pdfs.length > 0) {
@@ -752,10 +758,18 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
             p.burmeseName.includes(query.trim()),
         );
         if (found?.url)
-          return { url: found.url, fileName: found.fileName || found.name };
+          return {
+            url: found.url,
+            fileName: found.fileName || found.name,
+            price: found.price || "1,500 MMK",
+          };
       }
       // Fallback to legacy single PDF
-      return { url: adminConfig.pdfUrl || "", fileName: "document" };
+      return {
+        url: adminConfig.pdfUrl || "",
+        fileName: "document",
+        price: "1,500 MMK",
+      };
     },
     [adminConfig],
   );
@@ -764,6 +778,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
   const handleBuyPDF = useCallback(() => {
     setSelectedPdfUrl("");
     setSelectedPdfFileName("");
+    setSelectedPdfPrice("1,500 MMK");
     addMessage("user", t.buyPdf);
     setStep("asking_pdf_type");
     setTimeout(() => {
@@ -788,6 +803,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
     addMessage("user", t.confirmYes);
     setSelectedPdfUrl(pendingPdf.url);
     setSelectedPdfFileName(pendingPdf.fileName || "");
+    setSelectedPdfPrice(pendingPdf.price || "1,500 MMK");
     setPendingPdf(null);
     setStep("awaiting_upload");
     setTimeout(() => {
@@ -818,7 +834,12 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
         match.url ||
         "/assets/houyi_chat_3-019d6438-aef0-7345-979c-109e9a399abf.docx";
       const matchFileName = match.fileName || "houyi_chat_3.docx";
-      setPendingPdf({ name: val, url, fileName: matchFileName });
+      setPendingPdf({
+        name: val,
+        url,
+        fileName: matchFileName,
+        price: match.price,
+      });
       setStep("confirming_pdf");
       setTimeout(() => {
         addMessage("bot", t.confirmPdf);
@@ -959,6 +980,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
             <PaymentInfoCard
               phone={adminConfig.phone}
               kbz={adminConfig.kbzPay}
+              price={selectedPdfPrice}
               t={t}
             />
             <UploadZone onFile={handleFileUpload} uploading={uploading} />
@@ -1119,36 +1141,11 @@ function FeaturedPDFs() {
 
 function AdminPanel({ onClose }: { onClose: () => void }) {
   const [cfg, setCfg] = useState<AdminConfig>(loadAdminConfig);
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
-  const [uploadingPdf, setUploadingPdf] = useState(false);
   const [uploadingPdfIdx, setUploadingPdfIdx] = useState<number | null>(null);
-  const pdfInputRef = useRef<HTMLInputElement>(null);
 
   const save = () => {
     saveAdminConfig(cfg);
     toast.success("Settings saved!");
-  };
-
-  // Legacy single PDF upload
-  const handleUploadPdf = async () => {
-    if (!pdfFile) return;
-    setUploadingPdf(true);
-    try {
-      const url = await toBase64(pdfFile);
-      const updated = { ...cfg, pdfUrl: url, pdfFileName: pdfFile.name };
-      setCfg(updated);
-      saveAdminConfig(updated);
-      toast.success("File uploaded successfully!");
-      setPdfFile(null);
-    } catch {
-      toast.error("File upload failed.");
-    } finally {
-      setUploadingPdf(false);
-    }
-  };
-
-  const handlePdfZoneKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" || e.key === " ") pdfInputRef.current?.click();
   };
 
   // ── Multi-PDF management ──
@@ -1157,6 +1154,7 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
       id: makeId(),
       name: "",
       burmeseName: "",
+      price: "",
       url: "",
     };
     setCfg((prev) => ({ ...prev, pdfs: [...(prev.pdfs || []), newEntry] }));
@@ -1358,6 +1356,23 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
                       />
                     </div>
                   </div>
+                  <div>
+                    <label
+                      htmlFor={`pdf-price-${entry.id}`}
+                      className="text-xs text-slate-500 mb-1 block"
+                    >
+                      Price (MMK)
+                    </label>
+                    <Input
+                      id={`pdf-price-${entry.id}`}
+                      value={entry.price || ""}
+                      onChange={(e) =>
+                        updatePdfEntry(entry.id, "price", e.target.value)
+                      }
+                      placeholder="e.g. 1,500 MMK"
+                      className="text-sm"
+                    />
+                  </div>
                   {entry.url ? (
                     <div className="flex items-center gap-2 p-2 rounded-lg bg-green-50 border border-green-200">
                       <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
@@ -1416,65 +1431,6 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
           )}
         </div>
 
-        {/* Legacy single PDF upload (kept for backward compat) */}
-        <div className="space-y-3">
-          <h3 className="font-semibold text-slate-700 text-sm uppercase tracking-wide">
-            Legacy PDF File (Fallback)
-          </h3>
-          {cfg.pdfUrl && (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50 border border-green-200">
-              <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
-              <p className="text-xs text-green-700 truncate flex-1">
-                PDF uploaded: {cfg.pdfUrl.substring(0, 50)}…
-              </p>
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={() => pdfInputRef.current?.click()}
-            onKeyDown={handlePdfZoneKeyDown}
-            className="w-full border-2 border-dashed border-slate-300 rounded-xl p-6 text-center cursor-pointer hover:border-teal-400 hover:bg-teal-50 transition-colors"
-            data-ocid="admin.dropzone"
-          >
-            <Upload className="w-6 h-6 text-slate-400 mx-auto mb-2" />
-            <p className="text-sm text-slate-600">
-              {pdfFile ? pdfFile.name : "Click to select PDF file"}
-            </p>
-            <input
-              ref={pdfInputRef}
-              type="file"
-              accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip"
-              className="hidden"
-              onChange={(e) => setPdfFile(e.target.files?.[0] ?? null)}
-            />
-          </button>
-          {pdfFile && (
-            <Button
-              type="button"
-              onClick={handleUploadPdf}
-              disabled={uploadingPdf}
-              className="w-full"
-              style={{
-                background: "linear-gradient(135deg, #2E6F7C 0%, #245E69 100%)",
-                color: "white",
-              }}
-              data-ocid="admin.upload_button"
-            >
-              {uploadingPdf ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Uploading…
-                </>
-              ) : (
-                <>
-                  <Upload className="w-4 h-4 mr-2" />
-                  Upload File
-                </>
-              )}
-            </Button>
-          )}
-        </div>
-
         {/* Screenshots list */}
         <div className="space-y-3">
           <h3 className="font-semibold text-slate-700 text-sm uppercase tracking-wide">
@@ -1489,39 +1445,55 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
               No screenshots yet
             </div>
           ) : (
-            <div className="space-y-2 max-h-48 overflow-y-auto">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-96 overflow-y-auto">
               {cfg.screenshots.map((s, i) => (
                 <div
                   key={s.uploadedAt}
-                  className="flex items-center gap-2 p-2 rounded-lg bg-slate-50 border border-slate-100"
+                  className="flex flex-col items-center gap-1 p-2 rounded-xl bg-slate-50 border border-slate-200"
                   data-ocid={`admin.item.${i + 1}`}
                 >
                   {s.url.startsWith("data:") ? (
-                    <img
-                      src={s.url}
-                      alt="screenshot"
-                      className="w-12 h-12 object-cover rounded border border-slate-200 flex-shrink-0"
-                    />
+                    <button
+                      type="button"
+                      className="p-0 border-0 bg-transparent cursor-pointer block"
+                      onClick={() => window.open(s.url, "_blank")}
+                      aria-label="View full screenshot"
+                    >
+                      <img
+                        src={s.url}
+                        alt="payment screenshot"
+                        className="w-20 h-20 object-cover rounded-lg border border-slate-200"
+                      />
+                    </button>
                   ) : (
-                    <ImageIcon className="w-8 h-8 text-slate-400 flex-shrink-0" />
+                    <div className="w-20 h-20 bg-slate-100 rounded-lg flex items-center justify-center">
+                      <ImageIcon className="w-8 h-8 text-slate-400" />
+                    </div>
                   )}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-slate-700 truncate">
-                      {s.name}
-                    </p>
-                    <p className="text-xs text-slate-400">
-                      {new Date(s.uploadedAt).toLocaleString()}
-                    </p>
-                  </div>
-                  <div className="flex gap-1">
+                  <p className="text-xs text-slate-600 text-center truncate w-full">
+                    {s.name}
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    {new Date(s.uploadedAt).toLocaleDateString()}
+                  </p>
+                  <div className="flex gap-1 mt-1">
                     {s.url.startsWith("data:") && (
-                      <button
-                        type="button"
-                        onClick={() => window.open(s.url, "_blank")}
-                        className="text-teal-500 hover:text-teal-700 text-xs px-2 py-1 rounded border border-teal-200 hover:bg-teal-50"
-                      >
-                        View
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => window.open(s.url, "_blank")}
+                          className="text-xs px-2 py-0.5 rounded border border-teal-200 text-teal-600 hover:bg-teal-50"
+                        >
+                          View
+                        </button>
+                        <a
+                          href={s.url}
+                          download={s.name}
+                          className="text-xs px-2 py-0.5 rounded border border-blue-200 text-blue-600 hover:bg-blue-50"
+                        >
+                          Save
+                        </a>
+                      </>
                     )}
                     <button
                       type="button"
@@ -1538,7 +1510,7 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
                       className="text-rose-400 hover:text-rose-600"
                       data-ocid={`admin.delete_button.${i + 1}`}
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
