@@ -692,6 +692,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
   const [uploading, setUploading] = useState(false);
   const [lang, setLang] = useState<Lang>("mm");
   const [selectedPdfUrl, setSelectedPdfUrl] = useState("");
+  const [pdfReadyToDownload, setPdfReadyToDownload] = useState(false);
   const selectedPdfUrlRef = useRef("");
   const [pendingPdf, setPendingPdf] = useState<{
     name: string;
@@ -803,6 +804,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
     setSelectedPdfUrl("");
     setSelectedPdfFileName("");
     setSelectedPdfPrice("1,500 MMK");
+    setPdfReadyToDownload(false);
     addMessage("user", t.buyPdf);
     setStep("asking_pdf_type");
     setTimeout(() => {
@@ -930,6 +932,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
       setUploading(false);
 
       setStep("pdf_ready");
+      setPdfReadyToDownload(true);
       addMessage("bot", t.pdfReady);
       setTimeout(() => {
         addMessage("bot", t.thankYouMessage);
@@ -1029,7 +1032,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
         )}
 
         {/* PDF download */}
-        {selectedPdfUrl && (
+        {selectedPdfUrl && pdfReadyToDownload && (
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
