@@ -704,6 +704,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
 
   // ── Buy PDF flow ──
   const handleBuyPDF = useCallback(() => {
+    setSelectedPdfUrl("");
     addMessage("user", t.buyPdf);
     setStep("asking_pdf_type");
     setTimeout(() => {
@@ -812,8 +813,6 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
           addMessage("bot", t.continuePrompt);
         }, 2000);
       }, 1000);
-
-      URL.revokeObjectURL(localUrl);
     },
     [addMessage, t],
   );
@@ -904,7 +903,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
         )}
 
         {/* PDF download */}
-        {step === "pdf_ready" && (
+        {selectedPdfUrl && (
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
