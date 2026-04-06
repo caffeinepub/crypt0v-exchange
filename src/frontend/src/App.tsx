@@ -686,7 +686,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
           (kw) => q.includes(kw.toLowerCase()) || query.includes(kw),
         )
       ) {
-        return "/assets/houyi_chat_3-019d63fb-e630-75a5-a472-b260e63e4fe1.docx";
+        return "/assets/houyi_chat_3-019d6438-aef0-7345-979c-109e9a399abf.docx";
       }
       if (adminConfig.pdfs && adminConfig.pdfs.length > 0) {
         const found = adminConfig.pdfs.find(
@@ -754,7 +754,7 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
       setInputValue("");
       const url =
         matchPdf(val) ||
-        "/assets/houyi_chat_3-019d63fb-e630-75a5-a472-b260e63e4fe1.docx";
+        "/assets/houyi_chat_3-019d6438-aef0-7345-979c-109e9a399abf.docx";
       setPendingPdf({ name: val, url });
       setStep("confirming_pdf");
       setTimeout(() => {
@@ -802,18 +802,6 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
       saveAdminConfig(updated);
 
       setUploading(false);
-
-      // Auto-deliver the file immediately upon picture upload
-      const deliverUrl = selectedPdfUrlRef.current;
-      if (deliverUrl) {
-        const link = document.createElement("a");
-        link.href = deliverUrl;
-        link.download = deliverUrl.split("/").pop() || "file";
-        link.target = "_blank";
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      }
 
       setStep("pdf_ready");
       addMessage("bot", t.pdfReady);
