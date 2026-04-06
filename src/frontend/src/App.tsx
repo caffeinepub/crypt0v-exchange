@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Toaster } from "@/components/ui/sonner";
+import { HttpAgent } from "@icp-sdk/core/agent";
 import {
   CheckCircle,
   ChevronRight,
@@ -25,6 +26,8 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { loadConfig } from "./config";
+import { StorageClient } from "./utils/StorageClient";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -234,13 +237,34 @@ const FEATURED_PDFS = [
 
 // ─── Base64 helper ───────────────────────────────────────────────────────
 
-const toBase64 = (file: File): Promise<string> =>
+const _toBase64 = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+
+// ─── Blob storage upload helper ──────────────────────────────────────────
+
+async function uploadFileToBlob(file: File): Promise<{ url: string }> {
+  const config = await loadConfig();
+  const agent = new HttpAgent({ host: config.backend_host });
+  if (config.backend_host?.includes("localhost")) {
+    await agent.fetchRootKey().catch(() => {});
+  }
+  const storageClient = new StorageClient(
+    config.bucket_name,
+    config.storage_gateway_url,
+    config.backend_canister_id,
+    config.project_id,
+    agent,
+  );
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const { hash } = await storageClient.putFile(bytes);
+  const url = await storageClient.getDirectURL(hash);
+  return { url };
+}
 
 // ─── Typing indicator ─────────────────────────────────────────────────────
 
@@ -870,21 +894,38 @@ function ChatPanel({ adminConfig }: { adminConfig: AdminConfig }) {
       setUploading(true);
       setStep("uploading");
 
-      // Record the screenshot with actual base64 data so admin can view it
-      const imageBase64 = await toBase64(file);
-      const existing = loadAdminConfig();
-      const updated = {
-        ...existing,
-        screenshots: [
-          ...existing.screenshots,
-          {
-            name: file.name,
-            url: imageBase64,
-            uploadedAt: new Date().toISOString(),
-          },
-        ],
-      };
-      saveAdminConfig(updated);
+      // Upload screenshot to blob storage (avoids localStorage quota limit)
+      try {
+        const { url: blobUrl } = await uploadFileToBlob(file);
+        const existing = loadAdminConfig();
+        const updated = {
+          ...existing,
+          screenshots: [
+            ...existing.screenshots,
+            {
+              name: file.name,
+              url: blobUrl,
+              uploadedAt: new Date().toISOString(),
+            },
+          ],
+        };
+        saveAdminConfig(updated);
+      } catch {
+        // Fallback: store local object URL (won't persist but chat continues)
+        const existing = loadAdminConfig();
+        const updated = {
+          ...existing,
+          screenshots: [
+            ...existing.screenshots,
+            {
+              name: file.name,
+              url: localUrl,
+              uploadedAt: new Date().toISOString(),
+            },
+          ],
+        };
+        saveAdminConfig(updated);
+      }
 
       setUploading(false);
 
@@ -1179,7 +1220,8 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
   const handleUploadPdfEntry = async (idx: number, file: File) => {
     setUploadingPdfIdx(idx);
     try {
-      const url = await toBase64(file);
+      // Upload to blob storage to avoid localStorage quota limits
+      const { url } = await uploadFileToBlob(file);
       setCfg((prev) => {
         const newPdfs = [...(prev.pdfs || [])];
         newPdfs[idx] = { ...newPdfs[idx], url, fileName: file.name };
@@ -1188,8 +1230,9 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
         return updated;
       });
       toast.success("File uploaded!");
-    } catch {
-      toast.error("File upload failed.");
+    } catch (err) {
+      console.error("Blob upload failed:", err);
+      toast.error("File upload failed. Please try again.");
     } finally {
       setUploadingPdfIdx(null);
     }
@@ -1452,7 +1495,7 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
                   className="flex flex-col items-center gap-1 p-2 rounded-xl bg-slate-50 border border-slate-200"
                   data-ocid={`admin.item.${i + 1}`}
                 >
-                  {s.url.startsWith("data:") ? (
+                  {s.url ? (
                     <button
                       type="button"
                       className="p-0 border-0 bg-transparent cursor-pointer block"
@@ -1463,7 +1506,19 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
                         src={s.url}
                         alt="payment screenshot"
                         className="w-20 h-20 object-cover rounded-lg border border-slate-200"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = "none";
+                          (
+                            e.target as HTMLImageElement
+                          ).nextElementSibling?.removeAttribute("style");
+                        }}
                       />
+                      <div
+                        style={{ display: "none" }}
+                        className="w-20 h-20 bg-slate-100 rounded-lg flex items-center justify-center"
+                      >
+                        <ImageIcon className="w-8 h-8 text-slate-400" />
+                      </div>
                     </button>
                   ) : (
                     <div className="w-20 h-20 bg-slate-100 rounded-lg flex items-center justify-center">
@@ -1477,7 +1532,7 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
                     {new Date(s.uploadedAt).toLocaleDateString()}
                   </p>
                   <div className="flex gap-1 mt-1">
-                    {s.url.startsWith("data:") && (
+                    {s.url && (
                       <>
                         <button
                           type="button"
@@ -1489,6 +1544,8 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
                         <a
                           href={s.url}
                           download={s.name}
+                          target="_blank"
+                          rel="noopener noreferrer"
                           className="text-xs px-2 py-0.5 rounded border border-blue-200 text-blue-600 hover:bg-blue-50"
                         >
                           Save
